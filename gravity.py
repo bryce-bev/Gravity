@@ -66,6 +66,26 @@ class NonLinearScale(tk.Scale):
             return str(5 * (int(self.var.get()) - 16))
         else:
             return str(10 * (int(self.var.get()) - 35))
+
+# https://stackoverflow.com/questions/69175812/in-a-tkinter-slider-can-you-vary-the-range-from-being-linear-to-exponential-for
+class LogScale(tk.Scale):
+    def __init__(self,parent,**kwargs):
+        tk.Scale.__init__(self,parent,**kwargs)
+        self.var = tk.DoubleVar()
+        #self.config[showvalue] = 0
+        self['showvalue'] = 0
+        self['label'] = 0
+        self['command'] = self.update
+        self['variable'] = self.var
+
+    def update(self,event):
+        self.config(label=self.value)
+
+    @property
+    def value(self):
+        return str(10**float(self.var.get()))
+    def get(self):
+        return 10 ** float(self.var.get())
 class Planet:
 
     pos = np.array([0.0,0.0])
@@ -183,7 +203,6 @@ def calculate_actual_paths(p1, p2,com):
     E = 0.5 * p1.mass * dist(p1.vel - com_vel, np.zeros(2)) ** 2 \
         + 0.5 * p2.mass * dist(p2.vel - com_vel, np.zeros(2)) ** 2 - k / (r1 + r2)
     ecc = np.sqrt(1 + (2 * E * L ** 2) / (m * k ** 2))
-
     def calculate_planet_path(planet, r):
         sin = 1
         going_out = np.dot(planet.pos - com, planet.vel - com_vel) < 0
@@ -349,6 +368,7 @@ def manager(planets):
     global energy_graph_update_scale
     global actual_variance_graph_update_scale
     global starting_paths
+    global timestep_length_scale
     while running:
         p = planet_queue.get()
         if p in planets:
@@ -373,9 +393,8 @@ def manager(planets):
                 if draw_visuals:
                     draw(planets, com)
                 window.update()
-                time.sleep(.0001)
+                time.sleep(timestep_length_scale.get())
 
-            print(current_time)
 
 def start(start_condition):
     planets=[]
@@ -385,6 +404,8 @@ def start(start_condition):
     planet_number = 0
     global static_drawn_objects
     static_drawn_objects = []
+    global screen_rules_updated
+    screen_rules_updated = True
     if start_condition == "No Preset":
         planets = []
         global number_bodies_scale
@@ -421,6 +442,9 @@ def start(start_condition):
     if len(planets) == 2:
         starting_paths = calculate_actual_paths(planets[0],planets[1],update_com(planets))
     manager(planets)
+
+
+
 def create_UI(window):
     def create_title(window):
         title_frame = tk.Frame(window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
@@ -430,15 +454,17 @@ def create_UI(window):
         # window.columnconfigure(1, weight=1)
         # window.rowconfigure(1, weight=1)
 
+
     def create_controls(window):
         start_condition = StringVar()
         controls_font_size= 12
         scale_width = 10
 
-        def screen_rules_updated():
+
+            # draw()
+        def _screen_rules_updated(*args):
             global screen_rules_updated
             screen_rules_updated = True
-            # draw()
 
         def create_general_controls(control_frame):
             general_font_size = controls_font_size
@@ -467,7 +493,19 @@ def create_UI(window):
                 collisions_frame.collisions_button.pack(side=LEFT)
                 collisions_frame.pack(side=TOP, anchor=NW)
 
-            general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=60,
+            def create_timestep_length(general_frame):
+                global timestep_length_scale
+                timestep_length_frame = tk.Frame(general_frame)
+                timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL, length=150, width=scale_width,
+                                   font = (font,general_font_size), resolution=1)
+                timestep_length_scale.set(-2)
+                timestep_length_label = tk.Label(timestep_length_frame, text="Timestep Length:",
+                                               font=(font, general_font_size))
+                timestep_length_label.pack(side=LEFT)
+                timestep_length_scale.pack(side=LEFT)
+                timestep_length_frame.pack(side=TOP, anchor=NW)
+
+            general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=80,
                                      highlightthickness=1)
             general_frame.grid(row=1, column=0, pady=0, padx=4)
             general_frame.pack_propagate(False)
@@ -475,11 +513,10 @@ def create_UI(window):
             general.pack(side=TOP)
 
             create_collisions_button(general_frame)
+            create_timestep_length(general_frame)
 
         def create_draw_controls(control_frame):
             draw_controls_font_size = controls_font_size
-            global screen_rules_updated
-            screen_rules_updated = True
             def create_visuals_button(draw_control_frame):
                 global draw_visuals
                 draw_visuals = True
@@ -514,6 +551,7 @@ def create_UI(window):
 
                 def start_button_clicked():
                     global com_button_on
+                    _screen_rules_updated()
                     if com_button_on:
                         com_frame.com_button.config(highlightbackground="white", text="Tracking (0,0)")
                         com_button_on = False
@@ -537,7 +575,7 @@ def create_UI(window):
                 global zoom_scale
                 zoom_frame = tk.Frame(draw_control_frame)
                 zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
-                                   font = (font,draw_controls_font_size), showvalue=0, command = screen_rules_updated)
+                                   font = (font,draw_controls_font_size), showvalue=0, command = _screen_rules_updated)
                 zoom_scale.set(50)
                 zoom_label = tk.Label(zoom_frame, text="Zoom:",
                                                font=(font, draw_controls_font_size))
@@ -558,7 +596,7 @@ def create_UI(window):
                 aparent_size_frame = tk.Frame(draw_control_frame)
                 aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
                                            length=150, width=scale_width, font = (font,draw_controls_font_size),
-                                           showvalue=0, command=screen_rules_updated)
+                                           showvalue=0, command=_screen_rules_updated)
                 aparent_size_scale.set(50)
                 aparent_size_label = tk.Label(aparent_size_frame, text="Aparent Size of Bodies:",
                                                font=(font, draw_controls_font_size))
@@ -595,6 +633,7 @@ def create_UI(window):
 
                 def start_button_clicked():
                     global starting_path_button_on
+                    _screen_rules_updated()
                     if starting_path_button_on:
                         starting_path_frame.starting_path_button.config(highlightbackground="white", text="Not Showing Starting Paths")
                         starting_path_button_on = False

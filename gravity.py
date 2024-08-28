@@ -16,7 +16,6 @@ from matplotlib.figure import Figure
 G = 1
 font = "Times"
 canvas = ""
-running = False
 models = ["Interval", "Dynamic Interval", "Position Average"]
 model_descriptions = {
     "Interval": "This is the basic model where every time step the gravitational attraction is calculated and the position updated",
@@ -229,7 +228,9 @@ class Planet:
 
 
 class SimulationInstance:
-    def __init__(self, planets, model):
+    def __init__(self, planets, model, user_interface):
+        self.user_interface = user_interface
+        self.running = False
         self.current_time = 0
         self.planets = planets
         self.planet_queue = PriorityQueue()
@@ -241,10 +242,13 @@ class SimulationInstance:
         self.k_energy_list = []
         self.gp_energy_list = []
         if len(planets) == 2:
+            self.two_planet_start = True
             self.starting_paths = self.calculate_actual_paths()
         else:
+            self.two_planet_start = False
             self.starting_paths = None
         self.variances_list = [[], []]
+        self.number_planets = len(planets)
 
     def recalculate_com(self):
         self.com = np.array([0.0, 0.0])
@@ -317,7 +321,7 @@ class SimulationInstance:
             gp_energy = 0
             for i in range(1, len(planets)):
                 for j in range(0, i):
-                    gp_energy += -1 * planets[i].mass * planets[j].mass / dist(planets[i].pos, planets[j].pos)
+                    gp_energy += planets[i].mass * planets[j].mass / (planets[i].radius+ planets[j].radius) -  planets[i].mass * planets[j].mass / dist(planets[i].pos, planets[j].pos)
 
             return gp_energy
 
@@ -331,7 +335,7 @@ class SimulationInstance:
         self.gp_energy_list.append(gp_energy(self.planets))
 
     def record_variance(self):
-        if self.starting_paths == None:
+        if self.two_planet_start == False:
             return "ERROR: can't record variance, there must be exactly 2 planets"
         if len(self.planets) < 2:
             self.variances_list[0].append(0)
@@ -370,225 +374,68 @@ class SimulationInstance:
         for i in range(2):
             self.variances_list[i].append(variance_from_path(self.planets[i], self.starting_paths[i]))
 
+    def end_condition_met(self):
+        try:
+            self.user_interface.end_condition
+        except AttributeError:
+            return False
+        if self.user_interface.end_condition.get() == "First Collision" or self.user_interface.end_condition.get() == "Time or First Collision":
+            if self.number_planets > len(self.planets):
+                return True
+        if self.user_interface.end_condition.get() == "Time" or self.user_interface.end_condition.get() == "Time or First Collision":
+            if self.current_time > float(self.user_interface.end_time_scale.get()):
+                return True
+        return False
+
+
     def run_simulation(self):
-        global running
-        global draw_visuals
         global graph_energy
         global graph_actual_variance
         global energy_graph_update_scale
         global actual_variance_graph_update_scale
         global starting_paths
         global timestep_length_scale
-        while running:
+        self.running = True
+        while self.running:
             self.record_energys()
             self.record_variance()
-            if graph_energy and self.current_time%(energy_graph_update_scale.get())==0:
-                plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
-            if graph_actual_variance and self.current_time%(actual_variance_graph_update_scale.get())==0:
-                plot_variance(self.times_list, self.variances_list)
-            if draw_visuals:
+            if self.user_interface.draw_visuals:
+                if graph_energy and self.current_time%(energy_graph_update_scale.get())==0:
+                    plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
+                if graph_actual_variance and self.current_time%(actual_variance_graph_update_scale.get())==0 and self.two_planet_start:
+                    plot_variance(self.times_list, self.variances_list)
                 draw(self)
             self.update()
-            time.sleep(timestep_length_scale.get())
+            print(self.current_time)
+            if self.end_condition_met():
+                print("should end", self.current_time)
+                break
+            if self.user_interface.draw_visuals:
+                time.sleep(timestep_length_scale.get())
 
 
-def draw(simulation):
-    global canvas
-    global window
-    global drawn_objects
-    global static_drawn_objects
-    global path_button_on
-    global starting_path_button_on
-    global zoom_scale
-    global aparent_size_scale
-    scale = get_scale(zoom_scale)
-    aparent_size = get_scale(aparent_size_scale)
-    planets = simulation.planets
-    com = simulation.com
+class UserInterface:
+    def __init__(self, window):
+        self.window = window
+        self.window.geometry("1600x900")
+        self.window.configure(background="lightblue")
+        self.simulations = []
 
-    def drawPlanet(planet, com):
-        global canvas
+        self.create_title()
+        self.create_canvas()
+        self.create_controls()
+        self.create_graphs()
+        self.window.mainloop()
 
-        x_offset = 0
-        y_offset = 0
-        if com_button_on:
-            x_offset = 1 * com[0]
-            y_offset = 1 * com[1]
-
-        xpos = planet.pos[0] - x_offset
-        ypos = planet.pos[1] - y_offset
-        drawn_objects.append(canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
-                                               scale * (ypos - aparent_size * planet.radius) + 400,
-                                               scale * (xpos + aparent_size * planet.radius) + 400,
-                                               scale * (ypos + aparent_size * planet.radius) + 400,
-                                               start=0, extent=359, fill=planet.color, outline=""))
-
-    def draw_com(com):
-        x = 0
-        _com = [400, 400]
-        global drawn_objects
-        if not com_button_on:
-            _com[0] = (scale * com[0]) + 400
-            _com[1] = (scale * com[1]) + 400
-        drawn_objects.append(canvas.create_arc(_com[0] - 2, _com[1] - 2,
-                                               _com[0] + 2, _com[1] + 2,
-                                               start=0, extent=359, outline="", fill="red"))
-        drawn_objects.append(canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
-        drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
-
-    def draw_path(points, com, storage_array):
-        offset = [0, 0]
-        if not com_button_on:
-            offset = com
-        for i in range(0, len(points) - 2, 2):
-            storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
-                                                    400 + scale * (offset[1] + points[i + 1]),
-                                                    400 + scale * (offset[0] + points[i + 2]),
-                                                    400 + scale * (offset[1] + points[i + 3]), width=1))
-
-    for o in drawn_objects:
-        canvas.delete(o)
-    drawn_objects = []
-
-    for planet in planets:
-        drawPlanet(planet, com)
-    draw_com(com)
-    if path_button_on and len(planets) == 2:
-        paths = simulation.calculate_actual_paths()
-        draw_path(paths[0], com, drawn_objects)
-        draw_path(paths[1], com, drawn_objects)
-    global screen_rules_updated
-    if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
-        starting_paths = simulation.starting_paths
-        for o in static_drawn_objects:
-            canvas.delete(o)
-        draw_path(starting_paths[0], com, static_drawn_objects)
-        draw_path(starting_paths[1], com, static_drawn_objects)
-        screen_rules_updated = False
-
-    canvas.update()
-
-
-def plot_energy(plotted_times, k_energys, gp_energys):
-    x = plotted_times
-    fig = Figure(figsize=(3.5, 3.5),
-                 dpi=100)
-    plot1 = fig.add_subplot(111)
-
-    plot1.plot(x, k_energys, label="Kinetic Energy")
-    plot1.plot(x, gp_energys, label="Gravitational Potential Energy")
-    energys = []
-    for i in range(len(k_energys)):
-        energys.append(k_energys[i] + gp_energys[i])
-    plot1.plot(x, energys, label="Total Energy")
-    plot1.legend()
-    # plot1.title.set_text("Energy vs Timestep")
-    plot1.set_xlabel("timestep")
-    plot1.set_ylabel("relative energy")
-    global energy_graph_frame
-    old_graphs = energy_graph_frame.winfo_children()
-    fig.subplots_adjust(top=1.0,
-                    bottom=0.28,
-                    left=0.2,
-                    right=1.00,
-                    hspace=0.01,
-                    wspace=0.01)
-    energy_graph_canvas = FigureCanvasTkAgg(fig,
-                                            master=energy_graph_frame)
-    energy_graph_canvas.draw()
-    energy_graph_canvas.get_tk_widget().grid(row=1,column=0)
-    for g in range(1, len(old_graphs)):
-        old_graphs[g].destroy()
-
-
-def plot_variance(plotted_times, variances):
-    x = plotted_times
-    fig = Figure(figsize=(3.5, 3.5),
-                 dpi=100)
-    plot1 = fig.add_subplot(111)
-
-    plot1.plot(x, variances[0], label="Planet 1 Variance")
-    plot1.plot(x, variances[1], label="Planet 2 Variance")
-    plot1.legend()
-    global actual_variance_graph_frame
-    old_graphs = actual_variance_graph_frame.winfo_children()
-    actual_variance_graph_canvas = FigureCanvasTkAgg(fig,
-                                                     master=actual_variance_graph_frame)
-    actual_variance_graph_canvas.draw()
-    actual_variance_graph_canvas.get_tk_widget().grid(row=1, column=0)
-    for g in range(1, len(old_graphs)):
-        old_graphs[g].destroy()
-
-
-def collide(planets, p1, p2):
-    p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.mass += p2.mass
-    p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
-    planets.remove(p2)
-
-
-def start(start_condition):
-    planets = []
-    global canvas
-    canvas.delete("all")
-    global planet_number
-    planet_number = 0
-    global static_drawn_objects
-    static_drawn_objects = []
-    global screen_rules_updated
-    screen_rules_updated = True
-    if start_condition == "No Preset":
-        planets = []
-        global number_bodies_scale
-        global distribution_area
-        global starting_mass
-        global starting_radius
-        global starting_velocity
-        global starting_rotation
-        for i in range(0, int(number_bodies_scale.value)):
-            pos = np.array([random.uniform(float(distribution_area[0].get()), float(distribution_area[1].get())),
-                            random.uniform(float(distribution_area[2].get()), float(distribution_area[3].get()))])
-            _starting_velocity = float(starting_velocity.get())
-            distance = dist([0, 0], pos)
-            rot = [-1 * float(starting_rotation.get()) * pos[1] / distance,
-                   float(starting_rotation.get()) * pos[0] / distance]
-            vel = np.array([rot[0] + random.uniform(-1 * _starting_velocity, _starting_velocity),
-                            rot[1] + random.uniform(-1 * _starting_velocity, _starting_velocity)])
-            radius = float(starting_radius.get())
-            mass = float(starting_mass.get())
-            p = Planet(pos, vel, mass, radius)
-            planets.append(p)
-    else:
-        file = open("saved-start-conditions/" + start_condition)
-        lines = [line.rstrip() for line in file]
-        for i in range(4, len(lines)):
-            planet_info = lines[i].split(' ')
-            pos = np.array(json.loads(planet_info[0][4:])).astype(np.float64)
-            vel = np.array(json.loads(planet_info[1][4:])).astype(np.float64)
-            radius = float(planet_info[2][7:])
-            mass = float(planet_info[3][5:])
-            path_color = planet_info[4][12:]
-            color = planet_info[5][6:]
-            p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
-            planets.append(p)
-    global selected_model
-    simulation = SimulationInstance(planets, selected_model.get())
-    simulation.run_simulation()
-
-
-def create_UI(window):
-    def create_title(window):
-        title_frame = tk.Frame(window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
+    def create_title(self):
+        title_frame = tk.Frame(self.window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
         title_frame.grid(row=0, column=0, columnspan=3, pady=8, padx=8, sticky=(N, S, E, W))
         title = tk.Label(title_frame, text="N-Body Model Simulator", font=(font, 35))
         title.place(relx=0.5, rely=0.5, anchor=CENTER)
-        # window.columnconfigure(1, weight=1)
-        # window.rowconfigure(1, weight=1)
+        # self.window.columnconfigure(1, weight=1)
+        # self.window.rowconfigure(1, weight=1)
 
-    def create_controls(window):
+    def create_controls(self):
         start_condition = StringVar()
         controls_font_size = 12
         scale_width = 10
@@ -600,6 +447,40 @@ def create_UI(window):
 
         def create_general_controls(control_frame):
             general_font_size = controls_font_size
+            def create_visuals_button(draw_control_frame):
+                self.draw_visuals = True
+                draw_visuals_frame = tk.Frame(draw_control_frame)
+
+                def draw_visuals_button_clicked():
+                    if len(self.simulations)!=0 and self.simulations[0].running:
+                        return
+                    global canvas
+                    if self.draw_visuals:
+                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="red",
+                                                                      text="Not Showing Simulation")
+                        self.draw_visuals = False
+                        self.draw_control_frame.destroy()
+                        create_multiple_simulation_controls(control_frame)
+                        canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
+                        canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
+                    else:
+                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
+                                                                      text="Showing Simulation")
+                        self.draw_visuals = True
+                        self.multiple_simulation_control_frame.destroy()
+                        create_draw_controls(control_frame)
+                        canvas.delete("all")
+
+                draw_visuals_frame.draw_visuals_button = tk.Button(draw_visuals_frame, text="Showing Simulation",
+                                                                   highlightbackground="green",
+                                                                   command=draw_visuals_button_clicked,
+                                                                   font=(font, general_font_size), width=20)
+
+                draw_visuals_label = tk.Label(draw_visuals_frame, text="Visuals: ",
+                                              font=(font, general_font_size))
+                draw_visuals_label.pack(side=LEFT)
+                draw_visuals_frame.draw_visuals_button.pack(side=LEFT)
+                draw_visuals_frame.pack(side=TOP, anchor=NW)
 
             def create_collisions_button(general_frame):
                 global collisions
@@ -640,49 +521,79 @@ def create_UI(window):
                 timestep_length_scale.pack(side=LEFT)
                 timestep_length_frame.pack(side=TOP, anchor=NW)
 
-            general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=80,
+            general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=100,
                                      highlightthickness=1)
             general_frame.grid(row=1, column=0, pady=0, padx=4)
             general_frame.pack_propagate(False)
             general = tk.Label(general_frame, text="General", font=(font, 15))
             general.pack(side=TOP)
 
+            create_visuals_button(general_frame)
             create_collisions_button(general_frame)
             create_timestep_length(general_frame)
 
+
+        def create_multiple_simulation_controls(control_frame):
+            multiple_simulation_font_size = controls_font_size
+            def create_number_simulations_slider(frame):
+                slider_frame = tk.Frame(frame)
+                self.number_simulations_scale = Scale(slider_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
+                                   font=(font, multiple_simulation_font_size), command=_screen_rules_updated)
+                self.number_simulations_scale.set(1)
+                slider_label = tk.Label(slider_frame, text="Number of Simulations:",
+                                      font=font)
+                slider_label.pack(side=LEFT)
+                self.number_simulations_scale.pack(side=LEFT)
+                slider_frame.pack(side=TOP, anchor=NW)
+
+            end_condition_specific_widgets = []
+            def create_end_condition_dropdown(frame):
+                def end_condition_change(*args):
+                    for w in end_condition_specific_widgets:
+                        w.destroy()
+                    if self.end_condition.get() == "Time or First Collision" or self.end_condition.get() == "Time":
+                        create_end_time_slider(frame)
+
+                self.end_condition = StringVar()
+
+                options = ["Time","First Collision","Time or First Collision"]
+                # initial menu text
+                preset_frame = tk.Frame(frame)
+                drop = OptionMenu(preset_frame, self.end_condition, *options)
+                preset = tk.Label(preset_frame, text="End Simulation Condition: ", font=(font, multiple_simulation_font_size))
+                preset.pack(side=LEFT)
+                drop.pack(side=LEFT)
+                preset_frame.pack(side=TOP, anchor=NW)
+                self.end_condition.trace("w", end_condition_change)
+                self.end_condition.set("Time or First Collision")
+
+
+            def create_end_time_slider(frame):
+                slider_frame = tk.Frame(frame)
+                end_condition_specific_widgets.append(slider_frame)
+                self.end_time_scale = Scale(slider_frame, from_=100, to=10000, orient=HORIZONTAL, length=150,
+                                            width=scale_width,
+                                            font=(font, multiple_simulation_font_size),
+                                            command=_screen_rules_updated)
+                self.end_time_scale.set(1000)
+                slider_label = tk.Label(slider_frame, text="End Timestep:",
+                                        font=font)
+                slider_label.pack(side=LEFT)
+                self.end_time_scale.pack(side=LEFT)
+                slider_frame.pack(side=TOP, anchor=NW)
+
+            self.multiple_simulation_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=150,
+                                          highlightthickness=1)
+            self.multiple_simulation_control_frame.grid(row=2, column=0, pady=1, padx=4)
+            self.multiple_simulation_control_frame.pack_propagate(False)
+            label = tk.Label(self.multiple_simulation_control_frame, text="Multiple Simulations", font=(font, 15))
+            label.pack(side=TOP)
+
+            create_number_simulations_slider(self.multiple_simulation_control_frame)
+            create_end_condition_dropdown(self.multiple_simulation_control_frame)
         def create_draw_controls(control_frame):
             draw_controls_font_size = controls_font_size
 
-            def create_visuals_button(draw_control_frame):
-                global draw_visuals
-                draw_visuals = True
-                draw_visuals_frame = tk.Frame(draw_control_frame)
-
-                def draw_visuals_button_clicked():
-                    global draw_visuals
-                    global canvas
-                    if draw_visuals:
-                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="red",
-                                                                      text="Not Showing Simulation")
-                        draw_visuals = False
-                        canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
-                        canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
-                    else:
-                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
-                                                                      text="Showing Simulation")
-                        draw_visuals = True
-                        canvas.delete("all")
-
-                draw_visuals_frame.draw_visuals_button = tk.Button(draw_visuals_frame, text="Showing Simulation",
-                                                                   highlightbackground="green",
-                                                                   command=draw_visuals_button_clicked,
-                                                                   font=(font, draw_controls_font_size), width=20)
-
-                draw_visuals_label = tk.Label(draw_visuals_frame, text="Visuals: ",
-                                              font=(font, draw_controls_font_size))
-                draw_visuals_label.pack(side=LEFT)
-                draw_visuals_frame.draw_visuals_button.pack(side=LEFT)
-                draw_visuals_frame.pack(side=TOP, anchor=NW)
 
             def create_com_button(draw_control_frame):
                 global com_button_on
@@ -724,9 +635,10 @@ def create_UI(window):
                 zoom_frame.pack(side=TOP, anchor=NW)
 
                 def on_mousewheel(event):
-                    zoom = zoom_scale.get()
-                    zoom += event.delta
-                    zoom_scale.set(zoom)
+                    if self.draw_visuals:
+                        zoom = zoom_scale.get()
+                        zoom += event.delta
+                        zoom_scale.set(zoom)
 
                 global canvas
                 canvas.bind_all("<MouseWheel>", on_mousewheel)
@@ -797,19 +709,19 @@ def create_UI(window):
                 starting_path_frame.starting_path_button.pack(side=LEFT)
                 starting_path_frame.pack(side=TOP, anchor=NW)
 
-            draw_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=170,
+            draw_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=150,
                                           highlightthickness=1)
             draw_control_frame.grid(row=2, column=0, pady=1, padx=4)
             draw_control_frame.pack_propagate(False)
             draw_control_label = tk.Label(draw_control_frame, text="Visuals", font=(font, 15))
             draw_control_label.pack(side=TOP)
 
-            create_visuals_button(draw_control_frame)
             create_com_button(draw_control_frame)
             create_zoom(draw_control_frame)
             create_aparent_size(draw_control_frame)
             create_path_button(draw_control_frame)
             create_starting_path_button(draw_control_frame)
+            self.draw_control_frame = draw_control_frame
 
         def create_starting_controls(control_frame):
             starting_controls_font_size = controls_font_size
@@ -1015,7 +927,7 @@ def create_UI(window):
                 global energy_graph_update_scale
                 energy_graph_update_scale = Scale(energy_graph_bottom_frame, from_=1, to=100, orient=HORIZONTAL,
                                                   length=150, width=scale_width, bg="gray",
-                                                  font=(font, data_controls_font_size))
+                                                  font=(font, data_controls_font_size), showvalue=0)
                 energy_graph_update_scale.set(5)
                 energy_graph_update_scale.configure(state=DISABLED)
                 energy_graph_update_label = tk.Label(energy_graph_bottom_frame, text="Graph Update Interval:",
@@ -1067,7 +979,7 @@ def create_UI(window):
                 actual_variance_graph_update_scale = Scale(actual_variance_graph_bottom_frame, from_=1, to=100,
                                                            orient=HORIZONTAL,
                                                            length=150, width=scale_width, bg="gray",
-                                                           font=(font, data_controls_font_size))
+                                                           font=(font, data_controls_font_size), showvalue=0)
                 actual_variance_graph_update_scale.set(5)
                 actual_variance_graph_update_scale.configure(state=DISABLED)
                 actual_variance_graph_update_label = tk.Label(actual_variance_graph_bottom_frame,
@@ -1114,6 +1026,47 @@ def create_UI(window):
                 actual_variance_graph_update_scale.pack(side=LEFT)
                 actual_variance_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
 
+            def create_download_field(data_frame):
+                download_field_frame = tk.Frame(data_frame)
+                CreateToolTip(download_field_frame, text="Download graph data from the last simulations (will not work while running)")
+                download_file_name = tk.StringVar()
+
+                def download_field_button_clicked():
+                    if len(self.simulations) != 0 and self.simulations[0].running == False:
+                        if download_file_name.get() != "":
+                            try:
+                                file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
+                            except FileExistsError:
+                                return
+                            file.write(download_file_name.get())
+                            i = 0
+                            for simulation in self.simulations:
+                                file.write("Simulation " + str(i) + "\n")
+                                file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
+                                file.write(
+                                    "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")
+                                if simulation.two_planet_start == True:
+                                    file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
+                                    file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
+                                i += 1
+
+                download_field_frame.download_fields_button = tk.Button(download_field_frame, text="Download",
+                                                                        highlightbackground="white",
+                                                                        command=download_field_button_clicked,
+                                                                        font=(
+                                                                        font, math.floor(data_controls_font_size)),
+                                                                        width=9, activebackground="gray")
+
+                download_field_entry = tk.Entry(download_field_frame, textvariable=download_file_name, width=25,
+                                                font=(font, data_controls_font_size))
+
+                download_field_label = tk.Label(download_field_frame, text="FileName: ",
+                                                font=(font, data_controls_font_size))
+                download_field_label.pack(side=LEFT)
+                download_field_entry.pack(side=LEFT)
+                download_field_frame.download_fields_button.pack(side=LEFT)
+                download_field_frame.pack(side=TOP, anchor = NW)
+
             data_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=140,
                                   highlightthickness=1)
             data_frame.grid(row=5, column=0, pady=0, padx=4)
@@ -1123,26 +1076,26 @@ def create_UI(window):
 
             create_energy_graph_controls(data_frame)
             create_actual_variance_graph_controls(data_frame)
+            create_download_field(data_frame)
 
         def create_start_button(control_frame):
-            global running
-            running = False
 
             def start_button_clicked():
-                global running
-                if not running:
+                if len(self.simulations) != 0:
+                    print(self.simulations[0].running)
+                    print(self.simulations)
+                if len(self.simulations)==0 or self.simulations[0].running == False:
                     control_frame.start_button.config(highlightbackground="red", text="End Simulation")
-                    running = True
-                    start(start_condition.get())
+                    self.start_simulations(start_condition.get())
                 else:
                     control_frame.start_button.config(highlightbackground="green", text="Start Simulation")
-                    running = False
+                    self.end_simulations()
 
             control_frame.start_button = tk.Button(control_frame, text="Start Simulation", highlightbackground="green",
                                                    command=start_button_clicked, width=16, font=(font, 20))
             control_frame.start_button.grid(row=6, column=0, pady=4, padx=4)
 
-        control_frame = tk.Frame(window, highlightbackground="black", width=370, height=800, highlightthickness=2)
+        control_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=800, highlightthickness=2)
         control_frame.grid(row=1, column=0, rowspan=2, pady=8, padx=8)
         control_frame.grid_propagate(False)
         title = tk.Label(control_frame, text="Controls", font=(font, 25))
@@ -1155,8 +1108,8 @@ def create_UI(window):
         create_model_controls(control_frame)
         create_start_button(control_frame)
 
-    def create_canvas(window):
-        canvas_frame = tk.Frame(window, highlightbackground="black", width=800, height=800, highlightthickness=2)
+    def create_canvas(self):
+        canvas_frame = tk.Frame(self.window, highlightbackground="black", width=800, height=800, highlightthickness=2)
         canvas_frame.grid(row=1, column=1, rowspan=2, pady=8, padx=8)
         global canvas
         canvas = tk.Canvas(canvas_frame, width=800, height=800)
@@ -1165,55 +1118,19 @@ def create_UI(window):
         drawn_objects = []
         return canvas
 
-    def create_graphs(window):
+    def create_graphs(self):
         graphs_font_size = 20
+        global energy_graph_frame
+        energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
+                                               highlightthickness=2)
+        energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
+        energy_graph_frame.grid_propagate(False)
+        energy_graph_label = tk.Label(energy_graph_frame, text="Energy at each Timestep",
+                                               font=(font, 25))
+        energy_graph_label.grid(row=0, column=0)
 
-        def create_energy_graph():
-            def create_download_field(energy_graph_frame):
-                download_field_frame = tk.Frame(energy_graph_frame)
-                download_file_name = tk.StringVar()
-                def download_field_button_clicked():
-                    if download_file_name.get() != "":
-                        try:
-                            open("saved-simulation-data/"+download_file_name.get()+".txt", "x")
-
-                        except FileExistsError:
-                            return
-
-
-                download_field_frame.download_fields_button = tk.Button(download_field_frame, text="Download",
-                                                                   highlightbackground="white",
-                                                                   command=download_field_button_clicked,
-                                                                   font=(font, math.floor(graphs_font_size/2)), width=9, activebackground="gray")
-
-                download_field_entry = tk.Entry(download_field_frame, textvariable=download_file_name, width=15,
-                                                   font=(font, graphs_font_size))
-
-                download_field_label = tk.Label(download_field_frame, text="FileName: ",
-                                              font=(font, graphs_font_size))
-                download_field_label.pack(side=LEFT)
-                download_field_entry.pack(side=LEFT)
-                download_field_frame.download_fields_button.pack(side=LEFT)
-                download_field_frame.grid(row=2, column=0)
-
-            global energy_graph_frame
-            outer_energy_graph_frame = tk.Frame(window, highlightbackground="black", width=370, height=390, highlightthickness=2)
-            outer_energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
-            outer_energy_graph_frame.grid_propagate(False)
-            energy_graph_label = tk.Label(outer_energy_graph_frame, text="Distribution of Energy", font=(font, 25))
-            energy_graph_label.grid(row=0, column=0)
-            energy_graph_frame = tk.Frame(outer_energy_graph_frame, width=370, height = 300)
-            energy_graph_frame.grid_propagate(False)
-            energy_graph_frame.grid(row=1, column=0)
-            create_download_field(outer_energy_graph_frame)
-
-        def create_variance_graph():
-            print("temp")
-
-        create_energy_graph()
-        create_variance_graph()
         global actual_variance_graph_frame
-        actual_variance_graph_frame = tk.Frame(window, highlightbackground="black", width=370, height=390,
+        actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
                                                highlightthickness=2)
         actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
         actual_variance_graph_frame.grid_propagate(False)
@@ -1221,22 +1138,221 @@ def create_UI(window):
                                                font=(font, 25))
         actual_variance_graph_label.grid(row=0, column=0)
 
+    def end_simulations(self):
+        for simulation in self.simulations:
+            simulation.running = False
 
-    window.geometry("1600x900")
-    window.configure(background="lightblue")
-    create_title(window)
-    create_canvas(window)
-    create_controls(window)
+    def start_simulations(self, start_condition):
+        self.simulations = []
+        if self.draw_visuals:
+            self.start_simulation(start_condition)
+        else:
+            self.window.update()
+            number_simulations = int(self.number_simulations_scale.get())
+            for i in range(number_simulations):
+                self.start_simulation(start_condition)
 
-    create_graphs(window)
-    window.mainloop()
-    # global running
-    # running = True
-    # start()
+    def start_simulation(self,start_condition):
+        planets = []
+        global canvas
+        canvas.delete("all")
+        global planet_number
+        planet_number = 0
+        global static_drawn_objects
+        static_drawn_objects = []
+        global screen_rules_updated
+        screen_rules_updated = True
+        if start_condition == "No Preset":
+            planets = []
+            global number_bodies_scale
+            global distribution_area
+            global starting_mass
+            global starting_radius
+            global starting_velocity
+            global starting_rotation
+            for i in range(0, int(number_bodies_scale.value)):
+                pos = np.array([random.uniform(float(distribution_area[0].get()), float(distribution_area[1].get())),
+                                random.uniform(float(distribution_area[2].get()), float(distribution_area[3].get()))])
+                _starting_velocity = float(starting_velocity.get())
+                distance = dist([0, 0], pos)
+                rot = [-1 * float(starting_rotation.get()) * pos[1] / distance,
+                       float(starting_rotation.get()) * pos[0] / distance]
+                vel = np.array([rot[0] + random.uniform(-1 * _starting_velocity, _starting_velocity),
+                                rot[1] + random.uniform(-1 * _starting_velocity, _starting_velocity)])
+                radius = float(starting_radius.get())
+                mass = float(starting_mass.get())
+                p = Planet(pos, vel, mass, radius)
+                planets.append(p)
+        else:
+            file = open("saved-start-conditions/" + start_condition)
+            lines = [line.rstrip() for line in file]
+            for i in range(4, len(lines)):
+                planet_info = lines[i].split(' ')
+                pos = np.array(json.loads(planet_info[0][4:])).astype(np.float64)
+                vel = np.array(json.loads(planet_info[1][4:])).astype(np.float64)
+                radius = float(planet_info[2][7:])
+                mass = float(planet_info[3][5:])
+                path_color = planet_info[4][12:]
+                color = planet_info[5][6:]
+                p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
+                planets.append(p)
+        global selected_model
+        simulation = SimulationInstance(planets, selected_model.get(),self)
+        self.simulations.append(simulation)
+        simulation.run_simulation()
+
+def draw(simulation):
+    global canvas
+    global window
+    global drawn_objects
+    global static_drawn_objects
+    global path_button_on
+    global starting_path_button_on
+    global zoom_scale
+    global aparent_size_scale
+    scale = get_scale(zoom_scale)
+    aparent_size = get_scale(aparent_size_scale)
+    planets = simulation.planets
+    com = simulation.com
+
+    def drawPlanet(planet, com):
+        global canvas
+
+        x_offset = 0
+        y_offset = 0
+        if com_button_on:
+            x_offset = 1 * com[0]
+            y_offset = 1 * com[1]
+
+        xpos = planet.pos[0] - x_offset
+        ypos = planet.pos[1] - y_offset
+        drawn_objects.append(canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
+                                               scale * (ypos - aparent_size * planet.radius) + 400,
+                                               scale * (xpos + aparent_size * planet.radius) + 400,
+                                               scale * (ypos + aparent_size * planet.radius) + 400,
+                                               start=0, extent=359, fill=planet.color, outline=""))
+
+    def draw_com(com):
+        x = 0
+        _com = [400, 400]
+        global drawn_objects
+        if not com_button_on:
+            _com[0] = (scale * com[0]) + 400
+            _com[1] = (scale * com[1]) + 400
+        drawn_objects.append(canvas.create_arc(_com[0] - 2, _com[1] - 2,
+                                               _com[0] + 2, _com[1] + 2,
+                                               start=0, extent=359, outline="", fill="red"))
+        drawn_objects.append(canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
+        drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
+
+    def draw_path(points, com, storage_array):
+        offset = [0, 0]
+        if not com_button_on:
+            offset = com
+        for i in range(0, len(points) - 2, 2):
+            storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
+                                                    400 + scale * (offset[1] + points[i + 1]),
+                                                    400 + scale * (offset[0] + points[i + 2]),
+                                                    400 + scale * (offset[1] + points[i + 3]), width=1))
+
+    for o in drawn_objects:
+        canvas.delete(o)
+    drawn_objects = []
+
+    for planet in planets:
+        drawPlanet(planet, com)
+    draw_com(com)
+    if path_button_on and len(planets) == 2:
+        paths = simulation.calculate_actual_paths()
+        draw_path(paths[0], com, drawn_objects)
+        draw_path(paths[1], com, drawn_objects)
+    global screen_rules_updated
+    if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+        starting_paths = simulation.starting_paths
+        for o in static_drawn_objects:
+            canvas.delete(o)
+        draw_path(starting_paths[0], com, static_drawn_objects)
+        draw_path(starting_paths[1], com, static_drawn_objects)
+        screen_rules_updated = False
+
+    canvas.update()
+
+
+
+
+def plot_energy(plotted_times, k_energys, gp_energys):
+    x = plotted_times
+    fig = Figure(figsize=(3.5, 3.5),
+                 dpi=100)
+    plot1 = fig.add_subplot(111)
+
+    plot1.plot(x, k_energys, label="Kinetic Energy")
+    plot1.plot(x, gp_energys, label="Gravitational Potential Energy")
+    energys = []
+    for i in range(len(k_energys)):
+        energys.append(k_energys[i] + gp_energys[i])
+    plot1.plot(x, energys, label="Total Energy")
+    plot1.legend()
+    # plot1.title.set_text("Energy vs Timestep")
+    plot1.set_xlabel("timestep")
+    plot1.set_ylabel("relative energy")
+    global energy_graph_frame
+    old_graphs = energy_graph_frame.winfo_children()
+    fig.subplots_adjust(top=1.0,
+                    bottom=0.28,
+                    left=0.2,
+                    right=1.00,
+                    hspace=0.01,
+                    wspace=0.01)
+    energy_graph_canvas = FigureCanvasTkAgg(fig,
+                                            master=energy_graph_frame)
+    energy_graph_canvas.draw()
+    energy_graph_canvas.get_tk_widget().grid(row=1,column=0)
+    for g in range(1, len(old_graphs)):
+        old_graphs[g].destroy()
+
+
+def plot_variance(plotted_times, variances):
+    x = plotted_times
+    fig = Figure(figsize=(3.5, 3.5),
+                 dpi=100)
+    plot1 = fig.add_subplot(111)
+
+    plot1.plot(x, variances[0], label="Planet 1 Variance")
+    plot1.plot(x, variances[1], label="Planet 2 Variance")
+    plot1.legend()
+    plot1.set_xlabel("timestep")
+    plot1.set_ylabel("distance from actual path")
+    global actual_variance_graph_frame
+    old_graphs = actual_variance_graph_frame.winfo_children()
+    fig.subplots_adjust(top=1.0,
+                        bottom=0.28,
+                        left=0.2,
+                        right=1.00,
+                        hspace=0.01,
+                        wspace=0.01)
+    actual_variance_graph_canvas = FigureCanvasTkAgg(fig,
+                                                     master=actual_variance_graph_frame)
+    actual_variance_graph_canvas.draw()
+    actual_variance_graph_canvas.get_tk_widget().grid(row=1, column=0)
+    for g in range(1, len(old_graphs)):
+        old_graphs[g].destroy()
+
+
+def collide(planets, p1, p2):
+    p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
+    p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
+    p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
+    p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
+    p1.mass += p2.mass
+    p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
+    planets.remove(p2)
+
+
 
 
 if __name__ == '__main__':
     print("start")
     global window
     window = tk.Tk()
-    create_UI(window)
+    user_interface = UserInterface(window)

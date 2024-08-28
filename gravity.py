@@ -315,7 +315,13 @@ class SimulationInstance:
                                    - np.arctan2(planet.pos[1] - self.com[1], planet.pos[0] - self.com[0])) % 360 < 180
             if (going_out and not left_side) or (not going_out and left_side):
                 sin = -1
-            theta0 = sin * np.arccos((1 / ecc) * ((L ** 2 / (k * planet.mass * r)) - 1)) \
+            inner_cos = (1 / ecc) * ((L ** 2 / (k * planet.mass * r)) - 1)
+            if inner_cos < -1:
+                inner_cos = -1
+            if inner_cos > 1:
+                inner_cos = 1
+
+            theta0 = sin * np.arccos(inner_cos) \
                      + np.arctan2((planet.pos[1] - self.com[1]), ((planet.pos[0] - self.com[0])))
             points = []
             if ecc < 1:
@@ -327,6 +333,7 @@ class SimulationInstance:
                 radius = (L ** 2 / (planet.mass * k)) / (1 + ecc * np.cos(theta))
                 points.append(radius * np.cos(theta + theta0))
                 points.append(radius * np.sin(theta + theta0))
+
             return points
 
         p1_path = calculate_planet_path(p1, r1)
@@ -397,6 +404,8 @@ class SimulationInstance:
 
     # checks if an end condition has been met by the current simulation
     def end_condition_met(self):
+        if self.user_interface.draw_visuals == True:
+            return False
         try:
             self.user_interface.end_condition
         except AttributeError:
@@ -453,7 +462,7 @@ class UserInterface:
     def create_title(self):
         title_frame = tk.Frame(self.window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
         title_frame.grid(row=0, column=0, columnspan=3, pady=8, padx=8, sticky=(N, S, E, W))
-        title = tk.Label(title_frame, text="N-Body Model Simulator", font=(font, 35))
+        title = tk.Label(title_frame, text="2D N-Body Gravitational Simulator", font=(font, 35))
         title.place(relx=0.5, rely=0.5, anchor=CENTER)
         # self.window.columnconfigure(1, weight=1)
         # self.window.rowconfigure(1, weight=1)
@@ -1244,7 +1253,7 @@ class UserInterface:
         simulation.run_simulation()
 
     # draws all the visuals for the passed simulation
-    def draw(simulation):
+    def draw(self, simulation):
         global canvas
         global window
         global drawn_objects
@@ -1253,7 +1262,6 @@ class UserInterface:
         global starting_path_button_on
         global zoom_scale
         global aparent_size_scale
-
         def get_scale(zoom_scale):
             return (10 ** (float(zoom_scale.get()) / 25)) / 100
 
@@ -1278,7 +1286,7 @@ class UserInterface:
                                                    scale * (ypos - aparent_size * planet.radius) + 400,
                                                    scale * (xpos + aparent_size * planet.radius) + 400,
                                                    scale * (ypos + aparent_size * planet.radius) + 400,
-                                                   start=0, extent=359, fill=planet.color, outline=""))
+                                                   start=0, extent=359.9, fill=planet.color, outline=""))
 
         # draws the center of mass
         def draw_com(com):
@@ -1295,7 +1303,7 @@ class UserInterface:
             drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
 
         # draws a single path
-        def draw_path(points, com, storage_array):
+        def draw_path(points, com, storage_array, color="black"):
             offset = [0, 0]
             if not com_button_on:
                 offset = com
@@ -1303,7 +1311,7 @@ class UserInterface:
                 storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
                                                         400 + scale * (offset[1] + points[i + 1]),
                                                         400 + scale * (offset[0] + points[i + 2]),
-                                                        400 + scale * (offset[1] + points[i + 3]), width=1))
+                                                        400 + scale * (offset[1] + points[i + 3]), width=1, fill=color))
 
         for o in drawn_objects:
             canvas.delete(o)
@@ -1318,17 +1326,18 @@ class UserInterface:
             draw_path(paths[1], com, drawn_objects)
         global screen_rules_updated
         if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+
             starting_paths = simulation.starting_paths
             for o in static_drawn_objects:
                 canvas.delete(o)
-            draw_path(starting_paths[0], com, static_drawn_objects)
-            draw_path(starting_paths[1], com, static_drawn_objects)
+            draw_path(starting_paths[0], com, static_drawn_objects, color = "red")
+            draw_path(starting_paths[1], com, static_drawn_objects, color = "red")
             screen_rules_updated = False
 
         canvas.update()
 
     # shows the graph of energy on the user interface
-    def plot_energy(plotted_times, k_energys, gp_energys):
+    def plot_energy(self, plotted_times, k_energys, gp_energys):
         x = plotted_times
         fig = Figure(figsize=(3.5, 3.5),
                      dpi=100)
@@ -1360,7 +1369,7 @@ class UserInterface:
             old_graphs[g].destroy()
 
     # shows the graph of variance on the user interface
-    def plot_variance(plotted_times, variances):
+    def plot_variance(self, plotted_times, variances):
         x = plotted_times
         fig = Figure(figsize=(3.5, 3.5),
                      dpi=100)

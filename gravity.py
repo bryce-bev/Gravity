@@ -12,7 +12,12 @@ import numpy as np
 from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg)
 from matplotlib.figure import Figure
 
-# G = 6.6742 * pow(10, -11)
+# Gravity Code
+# All of the code is run through the UserInterface class
+# Individual simulations are run by the Simulation class
+# The rest of the class's and functions are used by those two classes
+
+# Global variables determining broad information
 G = 1
 font = "Times"
 canvas = ""
@@ -24,46 +29,42 @@ model_descriptions = {
 }
 
 
+# Helper Functions and Classes
+
+# Returns the distance between two points
 def dist(pos1, pos2):
     return math.sqrt((pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2)
 
 
+# Returns the distance between two points squared
 def distSquared(pos1, pos2):
     return (pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2
 
 
+# Returns distance in the x direction between two points
 def componentX(pos1, pos2):
     return (pos2[0] - pos1[0]) / dist(pos1, pos2)
 
 
+# Returns distance in the y direction between two points
 def componentY(pos1, pos2):
     return (pos2[1] - pos1[1]) / dist(pos1, pos2)
 
 
-def get_scale(zoom_scale):
-    return (10 ** (float(zoom_scale.get()) / 25)) / 100
+# handles a collision between 2 planet objects
+def collide(planets, p1, p2):
+    p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
+    p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
+    p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
+    p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
+    p1.mass += p2.mass
+    p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
+    planets.remove(p2)
 
 
-def poly_oval(x0, y0, x1, y1, steps=100, rotation=0):
-    rotation = rotation * math.pi / 180.0
-    a = (x1 - x0) / 2.0
-    b = (y1 - y0) / 2.0
-    xc = x0 + a
-    yc = y0 + b
-
-    point_list = []
-    for i in range(steps):
-        theta = (math.pi * 2) * (float(i) / steps)
-        x1 = a * math.cos(theta)
-        y1 = b * math.sin(theta)
-        x = (x1 * math.cos(rotation)) + (y1 * math.sin(rotation))
-        y = (y1 * math.cos(rotation)) - (x1 * math.sin(rotation))
-        point_list.append(round(x + xc))
-        point_list.append(round(y + yc))
-
-    return point_list
-
-
+# A tkinter scale object where the scale increases by different factors at differenct points
+# The code was modified from code taken from scotty3785 posted on this page:
+# https://stackoverflow.com/questions/69175812/in-a-tkinter-slider-can-you-vary-the-range-from-being-linear-to-exponential-for
 class NonLinearScale(tk.Scale):
     def __init__(self, parent, **kwargs):
         tk.Scale.__init__(self, parent, **kwargs)
@@ -86,6 +87,8 @@ class NonLinearScale(tk.Scale):
             return str(10 * (int(self.var.get()) - 35))
 
 
+# A tkinter scale object where the scale increases by an exponential factor.
+# The code was modified from code posted by scotty3785 on this page:
 # https://stackoverflow.com/questions/69175812/in-a-tkinter-slider-can-you-vary-the-range-from-being-linear-to-exponential-for
 class LogScale(tk.Scale):
     def __init__(self, parent, **kwargs):
@@ -108,6 +111,8 @@ class LogScale(tk.Scale):
         return 10 ** float(self.var.get())
 
 
+# A tkinter object for displaying text when hovering over another widget
+# The code was modified from code posted by squareRoot17 on this page:
 # https://stackoverflow.com/questions/20399243/display-message-when-hovering-over-something-with-mouse-cursor-in-python
 class ToolTip(object):
 
@@ -136,6 +141,7 @@ class ToolTip(object):
         self.label.destroy()
 
 
+# Function for managing the ToolTip class, also posted by squareRoot17
 def CreateToolTip(widget, text, add_y=0):
     toolTip = ToolTip(widget)
 
@@ -149,6 +155,7 @@ def CreateToolTip(widget, text, add_y=0):
     widget.bind('<Leave>', leave)
 
 
+# Planet class, each planet object represents a single object in the simulation.
 class Planet:
     pos = np.array([0.0, 0.0])
     vel = np.array([0.0, 0.0])
@@ -169,6 +176,7 @@ class Planet:
         self.path_color = path_color
         self.color = color
 
+    # Updates the planet position and velocity by calculating its gravitational interaction between other planets.
     def update_planet(self, planets, model):
         maxA = 0
         min_dis = -1
@@ -192,8 +200,12 @@ class Planet:
                     p2_calculation_position = p2.pos.copy()
                     # if model == "Position Average":
                     #     p2_calculation_position += p2.vel * position_average_modifier
-                    acceleration[0] += componentX(calculation_position, p2_calculation_position) * p2.mass / distSquared(calculation_position, p2_calculation_position)
-                    acceleration[1] += componentY(calculation_position, p2_calculation_position) * p2.mass / distSquared(calculation_position, p2_calculation_position)
+                    acceleration[0] += componentX(calculation_position,
+                                                  p2_calculation_position) * p2.mass / distSquared(calculation_position,
+                                                                                                   p2_calculation_position)
+                    acceleration[1] += componentY(calculation_position,
+                                                  p2_calculation_position) * p2.mass / distSquared(calculation_position,
+                                                                                                   p2_calculation_position)
                     collision = False
         velocity = self.vel + acceleration
         global dynamic_interval_scale
@@ -215,9 +227,9 @@ class Planet:
 
         self.vel += update_modifier * next_timestep * acceleration
         self.pos += next_timestep * self.vel
-        self.vel += (1-update_modifier) * next_timestep * acceleration
+        self.vel += (1 - update_modifier) * next_timestep * acceleration
 
-
+    # Determines planet order in priority queues so planets with sooner next_updates are prioritized
     def __gt__(self, other):
         if isinstance(other, Planet):
             return self.next_update > other.next_update
@@ -227,6 +239,7 @@ class Planet:
             "  Radius: " + str(self.radius) + "  Next Update: " + str(self.next_update)
 
 
+# SimulationInstance class, represents one instance of a simulation
 class SimulationInstance:
     def __init__(self, planets, model, user_interface):
         self.user_interface = user_interface
@@ -250,6 +263,7 @@ class SimulationInstance:
         self.variances_list = [[], []]
         self.number_planets = len(planets)
 
+    # calculates the center of mass for the planet system
     def recalculate_com(self):
         self.com = np.array([0.0, 0.0])
         totalMass = 0
@@ -258,6 +272,7 @@ class SimulationInstance:
             totalMass += p.mass
         self.com = self.com / totalMass
 
+    # updates all the planets through one timestep
     def update(self):
         p = self.planet_queue.get()
         while p.next_update < self.current_time + 1:
@@ -272,6 +287,8 @@ class SimulationInstance:
         self.current_time += 1
         self.times_list.append(self.current_time)
 
+    # calculated the path the planets should follow under gravitational interaction
+    # method only works if there are exactly two planets
     def calculate_actual_paths(self):
         if len(self.planets) != 2:
             return "ERROR: can't calculate path, there must be exactly 2 planets"
@@ -316,12 +333,14 @@ class SimulationInstance:
         p2_path = calculate_planet_path(p2, r2)
         return [p1_path, p2_path]
 
+    # records the kinetic and gravitational potential energy of the planet system
     def record_energys(self):
         def gp_energy(planets):
             gp_energy = 0
             for i in range(1, len(planets)):
                 for j in range(0, i):
-                    gp_energy += planets[i].mass * planets[j].mass / (planets[i].radius+ planets[j].radius) -  planets[i].mass * planets[j].mass / dist(planets[i].pos, planets[j].pos)
+                    gp_energy += planets[i].mass * planets[j].mass / (planets[i].radius + planets[j].radius) - planets[
+                        i].mass * planets[j].mass / dist(planets[i].pos, planets[j].pos)
 
             return gp_energy
 
@@ -334,6 +353,8 @@ class SimulationInstance:
         self.k_energy_list.append(k_energy(self.planets))
         self.gp_energy_list.append(gp_energy(self.planets))
 
+    # records the difference betweeneach planets position and path they should be on.
+    # method only works if there were exactly two planets to start
     def record_variance(self):
         if self.two_planet_start == False:
             return "ERROR: can't record variance, there must be exactly 2 planets"
@@ -374,6 +395,7 @@ class SimulationInstance:
         for i in range(2):
             self.variances_list[i].append(variance_from_path(self.planets[i], self.starting_paths[i]))
 
+    # checks if an end condition has been met by the current simulation
     def end_condition_met(self):
         try:
             self.user_interface.end_condition
@@ -387,7 +409,7 @@ class SimulationInstance:
                 return True
         return False
 
-
+    # method that handles setting up and running the simulation
     def run_simulation(self):
         global graph_energy
         global graph_actual_variance
@@ -400,11 +422,12 @@ class SimulationInstance:
             self.record_energys()
             self.record_variance()
             if self.user_interface.draw_visuals:
-                if graph_energy and self.current_time%(energy_graph_update_scale.get())==0:
-                    plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
-                if graph_actual_variance and self.current_time%(actual_variance_graph_update_scale.get())==0 and self.two_planet_start:
-                    plot_variance(self.times_list, self.variances_list)
-                draw(self)
+                if graph_energy and self.current_time % (energy_graph_update_scale.get()) == 0:
+                    self.user_interface.plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
+                if graph_actual_variance and self.current_time % (
+                        actual_variance_graph_update_scale.get()) == 0 and self.two_planet_start:
+                    self.user_interface.plot_variance(self.times_list, self.variances_list)
+                self.user_interface.draw(self)
             self.update()
             if self.end_condition_met():
                 break
@@ -412,6 +435,7 @@ class SimulationInstance:
                 time.sleep(timestep_length_scale.get())
 
 
+# UserInterface class, handles all the user inputs and keeps track of the simulations that are running
 class UserInterface:
     def __init__(self, window):
         self.window = window
@@ -425,6 +449,7 @@ class UserInterface:
         self.create_graphs()
         self.window.mainloop()
 
+    # Creates the title widget
     def create_title(self):
         title_frame = tk.Frame(self.window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
         title_frame.grid(row=0, column=0, columnspan=3, pady=8, padx=8, sticky=(N, S, E, W))
@@ -433,24 +458,29 @@ class UserInterface:
         # self.window.columnconfigure(1, weight=1)
         # self.window.rowconfigure(1, weight=1)
 
+    # Creates the widget that contains all of the controls for the simulation
     def create_controls(self):
         start_condition = StringVar()
         controls_font_size = 12
         scale_width = 10
 
-        # draw()
+        # method that is called when a parrameter relating to how the visuals should be drawn is changed.
+        # it updates the screen rules updated variable,.
+        # room to expand it if other requirements for updating the screen rules appear
         def _screen_rules_updated(*args):
             global screen_rules_updated
             screen_rules_updated = True
 
+        # Creates the Widget for the general controls
         def create_general_controls(control_frame):
             general_font_size = controls_font_size
+
             def create_visuals_button(draw_control_frame):
                 self.draw_visuals = True
                 draw_visuals_frame = tk.Frame(draw_control_frame)
 
                 def draw_visuals_button_clicked():
-                    if len(self.simulations)!=0 and self.simulations[0].running:
+                    if len(self.simulations) != 0 and self.simulations[0].running:
                         return
                     global canvas
                     if self.draw_visuals:
@@ -530,21 +560,25 @@ class UserInterface:
             create_collisions_button(general_frame)
             create_timestep_length(general_frame)
 
-
+        # Creates the Widget for the multiple simulation controls
         def create_multiple_simulation_controls(control_frame):
             multiple_simulation_font_size = controls_font_size
+
             def create_number_simulations_slider(frame):
                 slider_frame = tk.Frame(frame)
-                self.number_simulations_scale = Scale(slider_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
-                                   font=(font, multiple_simulation_font_size), command=_screen_rules_updated)
+                self.number_simulations_scale = Scale(slider_frame, from_=1, to=100, orient=HORIZONTAL, length=150,
+                                                      width=scale_width,
+                                                      font=(font, multiple_simulation_font_size),
+                                                      command=_screen_rules_updated)
                 self.number_simulations_scale.set(1)
                 slider_label = tk.Label(slider_frame, text="Number of Simulations:",
-                                      font=font)
+                                        font=font)
                 slider_label.pack(side=LEFT)
                 self.number_simulations_scale.pack(side=LEFT)
                 slider_frame.pack(side=TOP, anchor=NW)
 
             end_condition_specific_widgets = []
+
             def create_end_condition_dropdown(frame):
                 def end_condition_change(*args):
                     for w in end_condition_specific_widgets:
@@ -554,17 +588,17 @@ class UserInterface:
 
                 self.end_condition = StringVar()
 
-                options = ["Time","First Collision","Time or First Collision"]
+                options = ["Time", "First Collision", "Time or First Collision"]
                 # initial menu text
                 preset_frame = tk.Frame(frame)
                 drop = OptionMenu(preset_frame, self.end_condition, *options)
-                preset = tk.Label(preset_frame, text="End Simulation Condition: ", font=(font, multiple_simulation_font_size))
+                preset = tk.Label(preset_frame, text="End Simulation Condition: ",
+                                  font=(font, multiple_simulation_font_size))
                 preset.pack(side=LEFT)
                 drop.pack(side=LEFT)
                 preset_frame.pack(side=TOP, anchor=NW)
                 self.end_condition.trace("w", end_condition_change)
                 self.end_condition.set("Time or First Collision")
-
 
             def create_end_time_slider(frame):
                 slider_frame = tk.Frame(frame)
@@ -580,8 +614,9 @@ class UserInterface:
                 self.end_time_scale.pack(side=LEFT)
                 slider_frame.pack(side=TOP, anchor=NW)
 
-            self.multiple_simulation_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=150,
-                                          highlightthickness=1)
+            self.multiple_simulation_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354,
+                                                              height=150,
+                                                              highlightthickness=1)
             self.multiple_simulation_control_frame.grid(row=2, column=0, pady=1, padx=4)
             self.multiple_simulation_control_frame.pack_propagate(False)
             label = tk.Label(self.multiple_simulation_control_frame, text="Multiple Simulations", font=(font, 15))
@@ -589,9 +624,10 @@ class UserInterface:
 
             create_number_simulations_slider(self.multiple_simulation_control_frame)
             create_end_condition_dropdown(self.multiple_simulation_control_frame)
+
+        # Creates the Widget for the visual controls
         def create_draw_controls(control_frame):
             draw_controls_font_size = controls_font_size
-
 
             def create_com_button(draw_control_frame):
                 global com_button_on
@@ -721,6 +757,7 @@ class UserInterface:
             create_starting_path_button(draw_control_frame)
             self.draw_control_frame = draw_control_frame
 
+        # Creates the Widget for the starting controls
         def create_starting_controls(control_frame):
             starting_controls_font_size = controls_font_size
 
@@ -858,6 +895,7 @@ class UserInterface:
             create_velocity_entry(starting_frame)
             create_rotation_entry(starting_frame)
 
+        # Creates the Widget for the model controls
         def create_model_controls(control_frame):
             model_controls_font_size = controls_font_size
             model_specific_widgets = []
@@ -916,6 +954,7 @@ class UserInterface:
 
             create_model_menu(model_frame)
 
+        # Creates the Widget for the data controls
         def create_data_controls(control_frame):
             data_controls_font_size = controls_font_size
 
@@ -1026,7 +1065,8 @@ class UserInterface:
 
             def create_download_field(data_frame):
                 download_field_frame = tk.Frame(data_frame)
-                CreateToolTip(download_field_frame, text="Download graph data from the last simulations (will not work while running)")
+                CreateToolTip(download_field_frame,
+                              text="Download graph data from the last simulations (will not work while running)")
                 download_file_name = tk.StringVar()
 
                 def download_field_button_clicked():
@@ -1052,7 +1092,7 @@ class UserInterface:
                                                                         highlightbackground="white",
                                                                         command=download_field_button_clicked,
                                                                         font=(
-                                                                        font, math.floor(data_controls_font_size)),
+                                                                            font, math.floor(data_controls_font_size)),
                                                                         width=9, activebackground="gray")
 
                 download_field_entry = tk.Entry(download_field_frame, textvariable=download_file_name, width=25,
@@ -1063,7 +1103,7 @@ class UserInterface:
                 download_field_label.pack(side=LEFT)
                 download_field_entry.pack(side=LEFT)
                 download_field_frame.download_fields_button.pack(side=LEFT)
-                download_field_frame.pack(side=TOP, anchor = NW)
+                download_field_frame.pack(side=TOP, anchor=NW)
 
             data_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=140,
                                   highlightthickness=1)
@@ -1076,10 +1116,11 @@ class UserInterface:
             create_actual_variance_graph_controls(data_frame)
             create_download_field(data_frame)
 
+        # Creates the Widget for the starting button
         def create_start_button(control_frame):
 
             def start_button_clicked():
-                if len(self.simulations)==0 or self.simulations[0].running == False:
+                if len(self.simulations) == 0 or self.simulations[0].running == False:
                     control_frame.start_button.config(highlightbackground="red", text="End Simulation")
                     self.start_simulations(start_condition.get())
                 else:
@@ -1090,6 +1131,7 @@ class UserInterface:
                                                    command=start_button_clicked, width=16, font=(font, 20))
             control_frame.start_button.grid(row=6, column=0, pady=4, padx=4)
 
+        # Creates the Controls Title
         control_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=800, highlightthickness=2)
         control_frame.grid(row=1, column=0, rowspan=2, pady=8, padx=8)
         control_frame.grid_propagate(False)
@@ -1103,6 +1145,7 @@ class UserInterface:
         create_model_controls(control_frame)
         create_start_button(control_frame)
 
+    # Creates the widget that contains the visuals
     def create_canvas(self):
         canvas_frame = tk.Frame(self.window, highlightbackground="black", width=800, height=800, highlightthickness=2)
         canvas_frame.grid(row=1, column=1, rowspan=2, pady=8, padx=8)
@@ -1113,15 +1156,16 @@ class UserInterface:
         drawn_objects = []
         return canvas
 
+    # Creates the widget that contains the graphs
     def create_graphs(self):
         graphs_font_size = 20
         global energy_graph_frame
         energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
-                                               highlightthickness=2)
+                                      highlightthickness=2)
         energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
         energy_graph_frame.grid_propagate(False)
         energy_graph_label = tk.Label(energy_graph_frame, text="Energy at each Timestep",
-                                               font=(font, 25))
+                                      font=(font, 25))
         energy_graph_label.grid(row=0, column=0)
 
         global actual_variance_graph_frame
@@ -1133,10 +1177,12 @@ class UserInterface:
                                                font=(font, 25))
         actual_variance_graph_label.grid(row=0, column=0)
 
+    # Handles the ending of all currently running simulations
     def end_simulations(self):
         for simulation in self.simulations:
             simulation.running = False
 
+    # Uses the user inputs to start on or multiple simulations
     def start_simulations(self, start_condition):
         self.simulations = []
         if self.draw_visuals:
@@ -1147,7 +1193,8 @@ class UserInterface:
             for i in range(number_simulations):
                 self.start_simulation(start_condition)
 
-    def start_simulation(self,start_condition):
+    # Starts a single simulation
+    def start_simulation(self, start_condition):
         planets = []
         global canvas
         canvas.delete("all")
@@ -1192,158 +1239,152 @@ class UserInterface:
                 p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
                 planets.append(p)
         global selected_model
-        simulation = SimulationInstance(planets, selected_model.get(),self)
+        simulation = SimulationInstance(planets, selected_model.get(), self)
         self.simulations.append(simulation)
         simulation.run_simulation()
 
-def draw(simulation):
-    global canvas
-    global window
-    global drawn_objects
-    global static_drawn_objects
-    global path_button_on
-    global starting_path_button_on
-    global zoom_scale
-    global aparent_size_scale
-    scale = get_scale(zoom_scale)
-    aparent_size = get_scale(aparent_size_scale)
-    planets = simulation.planets
-    com = simulation.com
-
-    def drawPlanet(planet, com):
+    # draws all the visuals for the passed simulation
+    def draw(simulation):
         global canvas
-
-        x_offset = 0
-        y_offset = 0
-        if com_button_on:
-            x_offset = 1 * com[0]
-            y_offset = 1 * com[1]
-
-        xpos = planet.pos[0] - x_offset
-        ypos = planet.pos[1] - y_offset
-        drawn_objects.append(canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
-                                               scale * (ypos - aparent_size * planet.radius) + 400,
-                                               scale * (xpos + aparent_size * planet.radius) + 400,
-                                               scale * (ypos + aparent_size * planet.radius) + 400,
-                                               start=0, extent=359, fill=planet.color, outline=""))
-
-    def draw_com(com):
-        x = 0
-        _com = [400, 400]
+        global window
         global drawn_objects
-        if not com_button_on:
-            _com[0] = (scale * com[0]) + 400
-            _com[1] = (scale * com[1]) + 400
-        drawn_objects.append(canvas.create_arc(_com[0] - 2, _com[1] - 2,
-                                               _com[0] + 2, _com[1] + 2,
-                                               start=0, extent=359, outline="", fill="red"))
-        drawn_objects.append(canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
-        drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
+        global static_drawn_objects
+        global path_button_on
+        global starting_path_button_on
+        global zoom_scale
+        global aparent_size_scale
 
-    def draw_path(points, com, storage_array):
-        offset = [0, 0]
-        if not com_button_on:
-            offset = com
-        for i in range(0, len(points) - 2, 2):
-            storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
-                                                    400 + scale * (offset[1] + points[i + 1]),
-                                                    400 + scale * (offset[0] + points[i + 2]),
-                                                    400 + scale * (offset[1] + points[i + 3]), width=1))
+        def get_scale(zoom_scale):
+            return (10 ** (float(zoom_scale.get()) / 25)) / 100
 
-    for o in drawn_objects:
-        canvas.delete(o)
-    drawn_objects = []
+        scale = get_scale(zoom_scale)
+        aparent_size = get_scale(aparent_size_scale)
+        planets = simulation.planets
+        com = simulation.com
 
-    for planet in planets:
-        drawPlanet(planet, com)
-    draw_com(com)
-    if path_button_on and len(planets) == 2:
-        paths = simulation.calculate_actual_paths()
-        draw_path(paths[0], com, drawn_objects)
-        draw_path(paths[1], com, drawn_objects)
-    global screen_rules_updated
-    if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
-        starting_paths = simulation.starting_paths
-        for o in static_drawn_objects:
+        # draws one planet
+        def drawPlanet(planet, com):
+            global canvas
+
+            x_offset = 0
+            y_offset = 0
+            if com_button_on:
+                x_offset = 1 * com[0]
+                y_offset = 1 * com[1]
+
+            xpos = planet.pos[0] - x_offset
+            ypos = planet.pos[1] - y_offset
+            drawn_objects.append(canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
+                                                   scale * (ypos - aparent_size * planet.radius) + 400,
+                                                   scale * (xpos + aparent_size * planet.radius) + 400,
+                                                   scale * (ypos + aparent_size * planet.radius) + 400,
+                                                   start=0, extent=359, fill=planet.color, outline=""))
+
+        # draws the center of mass
+        def draw_com(com):
+            x = 0
+            _com = [400, 400]
+            global drawn_objects
+            if not com_button_on:
+                _com[0] = (scale * com[0]) + 400
+                _com[1] = (scale * com[1]) + 400
+            drawn_objects.append(canvas.create_arc(_com[0] - 2, _com[1] - 2,
+                                                   _com[0] + 2, _com[1] + 2,
+                                                   start=0, extent=359, outline="", fill="red"))
+            drawn_objects.append(canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
+            drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
+
+        # draws a single path
+        def draw_path(points, com, storage_array):
+            offset = [0, 0]
+            if not com_button_on:
+                offset = com
+            for i in range(0, len(points) - 2, 2):
+                storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
+                                                        400 + scale * (offset[1] + points[i + 1]),
+                                                        400 + scale * (offset[0] + points[i + 2]),
+                                                        400 + scale * (offset[1] + points[i + 3]), width=1))
+
+        for o in drawn_objects:
             canvas.delete(o)
-        draw_path(starting_paths[0], com, static_drawn_objects)
-        draw_path(starting_paths[1], com, static_drawn_objects)
-        screen_rules_updated = False
+        drawn_objects = []
 
-    canvas.update()
+        for planet in planets:
+            drawPlanet(planet, com)
+        draw_com(com)
+        if path_button_on and len(planets) == 2:
+            paths = simulation.calculate_actual_paths()
+            draw_path(paths[0], com, drawn_objects)
+            draw_path(paths[1], com, drawn_objects)
+        global screen_rules_updated
+        if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+            starting_paths = simulation.starting_paths
+            for o in static_drawn_objects:
+                canvas.delete(o)
+            draw_path(starting_paths[0], com, static_drawn_objects)
+            draw_path(starting_paths[1], com, static_drawn_objects)
+            screen_rules_updated = False
 
+        canvas.update()
 
+    # shows the graph of energy on the user interface
+    def plot_energy(plotted_times, k_energys, gp_energys):
+        x = plotted_times
+        fig = Figure(figsize=(3.5, 3.5),
+                     dpi=100)
+        plot1 = fig.add_subplot(111)
 
+        plot1.plot(x, k_energys, label="Kinetic Energy")
+        plot1.plot(x, gp_energys, label="Gravitational Potential Energy")
+        energys = []
+        for i in range(len(k_energys)):
+            energys.append(k_energys[i] + gp_energys[i])
+        plot1.plot(x, energys, label="Total Energy")
+        plot1.legend()
+        # plot1.title.set_text("Energy vs Timestep")
+        plot1.set_xlabel("timestep")
+        plot1.set_ylabel("relative energy")
+        global energy_graph_frame
+        old_graphs = energy_graph_frame.winfo_children()
+        fig.subplots_adjust(top=1.0,
+                            bottom=0.28,
+                            left=0.2,
+                            right=1.00,
+                            hspace=0.01,
+                            wspace=0.01)
+        energy_graph_canvas = FigureCanvasTkAgg(fig,
+                                                master=energy_graph_frame)
+        energy_graph_canvas.draw()
+        energy_graph_canvas.get_tk_widget().grid(row=1, column=0)
+        for g in range(1, len(old_graphs)):
+            old_graphs[g].destroy()
 
-def plot_energy(plotted_times, k_energys, gp_energys):
-    x = plotted_times
-    fig = Figure(figsize=(3.5, 3.5),
-                 dpi=100)
-    plot1 = fig.add_subplot(111)
+    # shows the graph of variance on the user interface
+    def plot_variance(plotted_times, variances):
+        x = plotted_times
+        fig = Figure(figsize=(3.5, 3.5),
+                     dpi=100)
+        plot1 = fig.add_subplot(111)
 
-    plot1.plot(x, k_energys, label="Kinetic Energy")
-    plot1.plot(x, gp_energys, label="Gravitational Potential Energy")
-    energys = []
-    for i in range(len(k_energys)):
-        energys.append(k_energys[i] + gp_energys[i])
-    plot1.plot(x, energys, label="Total Energy")
-    plot1.legend()
-    # plot1.title.set_text("Energy vs Timestep")
-    plot1.set_xlabel("timestep")
-    plot1.set_ylabel("relative energy")
-    global energy_graph_frame
-    old_graphs = energy_graph_frame.winfo_children()
-    fig.subplots_adjust(top=1.0,
-                    bottom=0.28,
-                    left=0.2,
-                    right=1.00,
-                    hspace=0.01,
-                    wspace=0.01)
-    energy_graph_canvas = FigureCanvasTkAgg(fig,
-                                            master=energy_graph_frame)
-    energy_graph_canvas.draw()
-    energy_graph_canvas.get_tk_widget().grid(row=1,column=0)
-    for g in range(1, len(old_graphs)):
-        old_graphs[g].destroy()
-
-
-def plot_variance(plotted_times, variances):
-    x = plotted_times
-    fig = Figure(figsize=(3.5, 3.5),
-                 dpi=100)
-    plot1 = fig.add_subplot(111)
-
-    plot1.plot(x, variances[0], label="Planet 1 Variance")
-    plot1.plot(x, variances[1], label="Planet 2 Variance")
-    plot1.legend()
-    plot1.set_xlabel("timestep")
-    plot1.set_ylabel("distance from actual path")
-    global actual_variance_graph_frame
-    old_graphs = actual_variance_graph_frame.winfo_children()
-    fig.subplots_adjust(top=1.0,
-                        bottom=0.28,
-                        left=0.2,
-                        right=1.00,
-                        hspace=0.01,
-                        wspace=0.01)
-    actual_variance_graph_canvas = FigureCanvasTkAgg(fig,
-                                                     master=actual_variance_graph_frame)
-    actual_variance_graph_canvas.draw()
-    actual_variance_graph_canvas.get_tk_widget().grid(row=1, column=0)
-    for g in range(1, len(old_graphs)):
-        old_graphs[g].destroy()
-
-
-def collide(planets, p1, p2):
-    p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.mass += p2.mass
-    p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
-    planets.remove(p2)
-
-
+        plot1.plot(x, variances[0], label="Planet 1 Variance")
+        plot1.plot(x, variances[1], label="Planet 2 Variance")
+        plot1.legend()
+        plot1.set_xlabel("timestep")
+        plot1.set_ylabel("distance from actual path")
+        global actual_variance_graph_frame
+        old_graphs = actual_variance_graph_frame.winfo_children()
+        fig.subplots_adjust(top=1.0,
+                            bottom=0.28,
+                            left=0.2,
+                            right=1.00,
+                            hspace=0.01,
+                            wspace=0.01)
+        actual_variance_graph_canvas = FigureCanvasTkAgg(fig,
+                                                         master=actual_variance_graph_frame)
+        actual_variance_graph_canvas.draw()
+        actual_variance_graph_canvas.get_tk_widget().grid(row=1, column=0)
+        for g in range(1, len(old_graphs)):
+            old_graphs[g].destroy()
 
 
 if __name__ == '__main__':

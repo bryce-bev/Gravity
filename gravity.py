@@ -406,9 +406,7 @@ class SimulationInstance:
                     plot_variance(self.times_list, self.variances_list)
                 draw(self)
             self.update()
-            print(self.current_time)
             if self.end_condition_met():
-                print("should end", self.current_time)
                 break
             if self.user_interface.draw_visuals:
                 time.sleep(timestep_length_scale.get())
@@ -1081,9 +1079,6 @@ class UserInterface:
         def create_start_button(control_frame):
 
             def start_button_clicked():
-                if len(self.simulations) != 0:
-                    print(self.simulations[0].running)
-                    print(self.simulations)
                 if len(self.simulations)==0 or self.simulations[0].running == False:
                     control_frame.start_button.config(highlightbackground="red", text="End Simulation")
                     self.start_simulations(start_condition.get())
@@ -1352,7 +1347,6 @@ def collide(planets, p1, p2):
 
 
 if __name__ == '__main__':
-    print("start")
     global window
     window = tk.Tk()
     user_interface = UserInterface(window)

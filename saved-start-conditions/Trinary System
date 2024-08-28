@@ -1,0 +1,7 @@
+Planet Number:3
+Distribution Area:NA
+Body Mass:NA
+Planets:
+Pos:[300,400] Vel:[0,-1.1] Radius:10 Mass:500 Path-Color:red Color:black
+Pos:[500,400] Vel:[0,1.1] Radius:10 Mass:500 Path-Color:red Color:black
+Pos:[700,400] Vel:[0,-2.4] Radius:10 Mass:500 Path-Color:red Color:black

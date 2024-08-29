@@ -25,7 +25,7 @@ models = ["Interval", "Dynamic Interval", "Velocity Average"]
 model_descriptions = {
     "Interval": "This is the basic model where every time step the gravitational attraction is calculated and the position updated",
     "Dynamic Interval": "In this model a body is updated in smaller time intervals when it is passing close to another body.",
-    "Velocity Average": "In this model instead of calculating the gravitational interaction at a single position, it is calculated at the average position between current and next position."
+    "Velocity Average": "In this model instead of calculating the gravitational interaction at a single position.\nIt is calculated at the average position between current and next position."
 }
 
 
@@ -49,7 +49,6 @@ def component_x(pos1, pos2):
 # Returns distance in the y direction between two points
 def component_y(pos1, pos2):
     return (pos2[1] - pos1[1]) / dist(pos1, pos2)
-
 
 # handles a collision between 2 planet objects
 def collide(planets, p1, p2):
@@ -1101,6 +1100,7 @@ class UserInterface:
                                 i = 0
                                 for simulation in self.simulations:
                                     file.write("Simulation " + str(i) + "\n")
+                                    file.write("Runtime: "+str(simulation.current_time)+"\n")
                                     file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
                                     file.write(
                                         "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")

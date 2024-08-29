@@ -21,11 +21,11 @@ from matplotlib.figure import Figure
 G = 1
 font = "Times"
 canvas = ""
-models = ["Interval", "Dynamic Interval", "Position Average"]
+models = ["Interval", "Dynamic Interval", "Velocity Average"]
 model_descriptions = {
     "Interval": "This is the basic model where every time step the gravitational attraction is calculated and the position updated",
     "Dynamic Interval": "In this model a body is updated in smaller time intervals when it is passing close to another body.",
-    "Position Average": "In this model instead of calculating the gravitational interaction at a single position, it is calculated at the average position between current and next position."
+    "Velocity Average": "In this model instead of calculating the gravitational interaction at a single position.\nIt is calculated at the average position between current and next position."
 }
 
 
@@ -37,19 +37,18 @@ def dist(pos1, pos2):
 
 
 # Returns the distance between two points squared
-def distSquared(pos1, pos2):
+def dist_squared(pos1, pos2):
     return (pos1[0] - pos2[0]) ** 2 + (pos1[1] - pos2[1]) ** 2
 
 
 # Returns distance in the x direction between two points
-def componentX(pos1, pos2):
+def component_x(pos1, pos2):
     return (pos2[0] - pos1[0]) / dist(pos1, pos2)
 
 
 # Returns distance in the y direction between two points
-def componentY(pos1, pos2):
+def component_y(pos1, pos2):
     return (pos2[1] - pos1[1]) / dist(pos1, pos2)
-
 
 # handles a collision between 2 planet objects
 def collide(planets, p1, p2):
@@ -200,11 +199,11 @@ class Planet:
                     p2_calculation_position = p2.pos.copy()
                     # if model == "Position Average":
                     #     p2_calculation_position += p2.vel * position_average_modifier
-                    acceleration[0] += componentX(calculation_position,
-                                                  p2_calculation_position) * p2.mass / distSquared(calculation_position,
+                    acceleration[0] += component_x(calculation_position,
+                                                  p2_calculation_position) * p2.mass / dist_squared(calculation_position,
                                                                                                    p2_calculation_position)
-                    acceleration[1] += componentY(calculation_position,
-                                                  p2_calculation_position) * p2.mass / distSquared(calculation_position,
+                    acceleration[1] += component_y(calculation_position,
+                                                  p2_calculation_position) * p2.mass / dist_squared(calculation_position,
                                                                                                    p2_calculation_position)
                     collision = False
         velocity = self.vel + acceleration
@@ -220,7 +219,7 @@ class Planet:
         else:
             next_timestep = 1
         update_modifier = 1
-        if model == "Position Average":
+        if model == "Velocity Average":
             update_modifier = 0.75
         self.next_update += next_timestep
         self.last_pos = self.pos
@@ -315,7 +314,13 @@ class SimulationInstance:
                                    - np.arctan2(planet.pos[1] - self.com[1], planet.pos[0] - self.com[0])) % 360 < 180
             if (going_out and not left_side) or (not going_out and left_side):
                 sin = -1
-            theta0 = sin * np.arccos((1 / ecc) * ((L ** 2 / (k * planet.mass * r)) - 1)) \
+            inner_cos = (1 / ecc) * ((L ** 2 / (k * planet.mass * r)) - 1)
+            if inner_cos < -1:
+                inner_cos = -1
+            if inner_cos > 1:
+                inner_cos = 1
+
+            theta0 = sin * np.arccos(inner_cos) \
                      + np.arctan2((planet.pos[1] - self.com[1]), ((planet.pos[0] - self.com[0])))
             points = []
             if ecc < 1:
@@ -327,6 +332,7 @@ class SimulationInstance:
                 radius = (L ** 2 / (planet.mass * k)) / (1 + ecc * np.cos(theta))
                 points.append(radius * np.cos(theta + theta0))
                 points.append(radius * np.sin(theta + theta0))
+
             return points
 
         p1_path = calculate_planet_path(p1, r1)
@@ -347,7 +353,7 @@ class SimulationInstance:
         def k_energy(planets):
             k_energy = 0
             for p in planets:
-                k_energy += 0.5 * p.mass * distSquared(p.vel, [0, 0])
+                k_energy += 0.5 * p.mass * dist_squared(p.vel, [0, 0])
             return k_energy
 
         self.k_energy_list.append(k_energy(self.planets))
@@ -397,6 +403,8 @@ class SimulationInstance:
 
     # checks if an end condition has been met by the current simulation
     def end_condition_met(self):
+        if self.user_interface.draw_visuals == True:
+            return False
         try:
             self.user_interface.end_condition
         except AttributeError:
@@ -443,739 +451,761 @@ class UserInterface:
         self.window.configure(background="lightblue")
         self.simulations = []
 
-        self.create_title()
-        self.create_canvas()
-        self.create_controls()
-        self.create_graphs()
+
+        self.create()
         self.window.mainloop()
 
-    # Creates the title widget
-    def create_title(self):
-        title_frame = tk.Frame(self.window, highlightbackground="black", width=1580, height=55, highlightthickness=2)
-        title_frame.grid(row=0, column=0, columnspan=3, pady=8, padx=8, sticky=(N, S, E, W))
-        title = tk.Label(title_frame, text="N-Body Model Simulator", font=(font, 35))
-        title.place(relx=0.5, rely=0.5, anchor=CENTER)
-        # self.window.columnconfigure(1, weight=1)
-        # self.window.rowconfigure(1, weight=1)
+    # Creates and stores all the widgets for the user interface
+    def create(self):
+        # Creates the title widget
+        def create_title():
+            title_frame = tk.Frame(self.window, highlightbackground="black", width=1580, height=55,
+                                   highlightthickness=2)
+            title_frame.grid(row=0, column=0, columnspan=3, pady=8, padx=8, sticky=(N, S, E, W))
+            title = tk.Label(title_frame, text="2D N-Body Gravitational Simulator", font=(font, 35))
+            title.place(relx=0.5, rely=0.5, anchor=CENTER)
+            # self.window.columnconfigure(1, weight=1)
+            # self.window.rowconfigure(1, weight=1)
 
-    # Creates the widget that contains all of the controls for the simulation
-    def create_controls(self):
-        start_condition = StringVar()
-        controls_font_size = 12
-        scale_width = 10
+        # Creates the widget that contains all of the controls for the simulation
+        def create_controls():
+            start_condition = StringVar()
+            controls_font_size = 12
+            scale_width = 10
 
-        # method that is called when a parrameter relating to how the visuals should be drawn is changed.
-        # it updates the screen rules updated variable,.
-        # room to expand it if other requirements for updating the screen rules appear
-        def _screen_rules_updated(*args):
-            global screen_rules_updated
-            screen_rules_updated = True
+            # method that is called when a parrameter relating to how the visuals should be drawn is changed.
+            # it updates the screen rules updated variable,.
+            # room to expand it if other requirements for updating the screen rules appear
+            def _screen_rules_updated(*args):
+                global screen_rules_updated
+                screen_rules_updated = True
 
-        # Creates the Widget for the general controls
-        def create_general_controls(control_frame):
-            general_font_size = controls_font_size
+            # Creates the Widget for the general controls
+            def create_general_controls(control_frame):
+                general_font_size = controls_font_size
 
-            def create_visuals_button(draw_control_frame):
-                self.draw_visuals = True
-                draw_visuals_frame = tk.Frame(draw_control_frame)
+                def create_visuals_button(draw_control_frame):
+                    self.draw_visuals = True
+                    draw_visuals_frame = tk.Frame(draw_control_frame)
 
-                def draw_visuals_button_clicked():
-                    if len(self.simulations) != 0 and self.simulations[0].running:
-                        return
-                    global canvas
-                    if self.draw_visuals:
-                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="red",
-                                                                      text="Not Showing Simulation")
-                        self.draw_visuals = False
-                        self.draw_control_frame.destroy()
-                        create_multiple_simulation_controls(control_frame)
-                        canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
-                        canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
-                    else:
-                        draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
-                                                                      text="Showing Simulation")
-                        self.draw_visuals = True
-                        self.multiple_simulation_control_frame.destroy()
-                        create_draw_controls(control_frame)
-                        canvas.delete("all")
+                    def draw_visuals_button_clicked():
+                        if len(self.simulations) != 0 and self.simulations[0].running:
+                            return
+                        global canvas
+                        if self.draw_visuals:
+                            draw_visuals_frame.draw_visuals_button.config(highlightbackground="red",
+                                                                          text="Not Showing Simulation")
+                            self.draw_visuals = False
+                            self.draw_control_frame.destroy()
+                            create_multiple_simulation_controls(control_frame)
+                            canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
+                            canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
+                        else:
+                            draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
+                                                                          text="Showing Simulation")
+                            self.draw_visuals = True
+                            self.multiple_simulation_control_frame.destroy()
+                            create_draw_controls(control_frame)
+                            canvas.delete("all")
 
-                draw_visuals_frame.draw_visuals_button = tk.Button(draw_visuals_frame, text="Showing Simulation",
-                                                                   highlightbackground="green",
-                                                                   command=draw_visuals_button_clicked,
-                                                                   font=(font, general_font_size), width=20)
+                    draw_visuals_frame.draw_visuals_button = tk.Button(draw_visuals_frame, text="Showing Simulation",
+                                                                       highlightbackground="green",
+                                                                       command=draw_visuals_button_clicked,
+                                                                       font=(font, general_font_size), width=20)
 
-                draw_visuals_label = tk.Label(draw_visuals_frame, text="Visuals: ",
-                                              font=(font, general_font_size))
-                draw_visuals_label.pack(side=LEFT)
-                draw_visuals_frame.draw_visuals_button.pack(side=LEFT)
-                draw_visuals_frame.pack(side=TOP, anchor=NW)
+                    draw_visuals_label = tk.Label(draw_visuals_frame, text="Visuals: ",
+                                                  font=(font, general_font_size))
+                    draw_visuals_label.pack(side=LEFT)
+                    draw_visuals_frame.draw_visuals_button.pack(side=LEFT)
+                    draw_visuals_frame.pack(side=TOP, anchor=NW)
 
-            def create_collisions_button(general_frame):
-                global collisions
-                collisions = True
-                collisions_frame = tk.Frame(general_frame)
-
-                def collisions_button_clicked():
+                def create_collisions_button(general_frame):
                     global collisions
-                    global canvas
-                    if collisions:
-                        collisions_frame.collisions_button.config(highlightbackground="red", text="Off")
-                        collisions = False
-                    else:
-                        collisions_frame.collisions_button.config(highlightbackground="green", text="On")
-                        collisions = True
+                    collisions = True
+                    collisions_frame = tk.Frame(general_frame)
 
-                collisions_frame.collisions_button = tk.Button(collisions_frame, text="On",
-                                                               highlightbackground="green",
-                                                               command=collisions_button_clicked,
-                                                               font=(font, general_font_size), width=10)
-                CreateToolTip(collisions_frame.collisions_button,
-                              text='If this is turned on objects will merge when their radius`s intersect.')
-                collisions_label = tk.Label(collisions_frame, text="Collisions: ", font=(font, general_font_size))
-                collisions_label.pack(side=LEFT)
-                collisions_frame.collisions_button.pack(side=LEFT)
-                collisions_frame.pack(side=TOP, anchor=NW)
+                    def collisions_button_clicked():
+                        global collisions
+                        global canvas
+                        if collisions:
+                            collisions_frame.collisions_button.config(highlightbackground="red", text="Off")
+                            collisions = False
+                        else:
+                            collisions_frame.collisions_button.config(highlightbackground="green", text="On")
+                            collisions = True
 
-            def create_timestep_length(general_frame):
-                global timestep_length_scale
-                timestep_length_frame = tk.Frame(general_frame)
-                timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL,
-                                                 length=150, width=scale_width,
-                                                 font=(font, general_font_size), resolution=1)
-                timestep_length_scale.set(-2)
-                timestep_length_label = tk.Label(timestep_length_frame, text="Timestep Length:",
-                                                 font=(font, general_font_size))
-                timestep_length_label.pack(side=LEFT)
-                timestep_length_scale.pack(side=LEFT)
-                timestep_length_frame.pack(side=TOP, anchor=NW)
+                    collisions_frame.collisions_button = tk.Button(collisions_frame, text="On",
+                                                                   highlightbackground="green",
+                                                                   command=collisions_button_clicked,
+                                                                   font=(font, general_font_size), width=10)
+                    CreateToolTip(collisions_frame.collisions_button,
+                                  text='If this is turned on objects will merge when their radius`s intersect.')
+                    collisions_label = tk.Label(collisions_frame, text="Collisions: ", font=(font, general_font_size))
+                    collisions_label.pack(side=LEFT)
+                    collisions_frame.collisions_button.pack(side=LEFT)
+                    collisions_frame.pack(side=TOP, anchor=NW)
 
-            general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=100,
-                                     highlightthickness=1)
-            general_frame.grid(row=1, column=0, pady=0, padx=4)
-            general_frame.pack_propagate(False)
-            general = tk.Label(general_frame, text="General", font=(font, 15))
-            general.pack(side=TOP)
+                def create_timestep_length(general_frame):
+                    global timestep_length_scale
+                    timestep_length_frame = tk.Frame(general_frame)
+                    timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL,
+                                                     length=150, width=scale_width,
+                                                     font=(font, general_font_size), resolution=1)
+                    timestep_length_scale.set(-2)
+                    timestep_length_label = tk.Label(timestep_length_frame, text="Timestep Length:",
+                                                     font=(font, general_font_size))
+                    timestep_length_label.pack(side=LEFT)
+                    timestep_length_scale.pack(side=LEFT)
+                    timestep_length_frame.pack(side=TOP, anchor=NW)
 
-            create_visuals_button(general_frame)
-            create_collisions_button(general_frame)
-            create_timestep_length(general_frame)
+                general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=100,
+                                         highlightthickness=1)
+                general_frame.grid(row=1, column=0, pady=0, padx=4)
+                general_frame.pack_propagate(False)
+                general = tk.Label(general_frame, text="General", font=(font, 15))
+                general.pack(side=TOP)
 
-        # Creates the Widget for the multiple simulation controls
-        def create_multiple_simulation_controls(control_frame):
-            multiple_simulation_font_size = controls_font_size
+                create_visuals_button(general_frame)
+                create_collisions_button(general_frame)
+                create_timestep_length(general_frame)
 
-            def create_number_simulations_slider(frame):
-                slider_frame = tk.Frame(frame)
-                self.number_simulations_scale = Scale(slider_frame, from_=1, to=100, orient=HORIZONTAL, length=150,
-                                                      width=scale_width,
-                                                      font=(font, multiple_simulation_font_size),
-                                                      command=_screen_rules_updated)
-                self.number_simulations_scale.set(1)
-                slider_label = tk.Label(slider_frame, text="Number of Simulations:",
-                                        font=font)
-                slider_label.pack(side=LEFT)
-                self.number_simulations_scale.pack(side=LEFT)
-                slider_frame.pack(side=TOP, anchor=NW)
+            # Creates the Widget for the multiple simulation controls
+            def create_multiple_simulation_controls(control_frame):
+                multiple_simulation_font_size = controls_font_size
 
-            end_condition_specific_widgets = []
+                def create_number_simulations_slider(frame):
+                    slider_frame = tk.Frame(frame)
+                    self.number_simulations_scale = Scale(slider_frame, from_=1, to=100, orient=HORIZONTAL, length=150,
+                                                          width=scale_width,
+                                                          font=(font, multiple_simulation_font_size),
+                                                          command=_screen_rules_updated)
+                    self.number_simulations_scale.set(1)
+                    slider_label = tk.Label(slider_frame, text="Number of Simulations:",
+                                            font=font)
+                    slider_label.pack(side=LEFT)
+                    self.number_simulations_scale.pack(side=LEFT)
+                    slider_frame.pack(side=TOP, anchor=NW)
 
-            def create_end_condition_dropdown(frame):
-                def end_condition_change(*args):
-                    for w in end_condition_specific_widgets:
-                        w.destroy()
-                    if self.end_condition.get() == "Time or First Collision" or self.end_condition.get() == "Time":
-                        create_end_time_slider(frame)
+                end_condition_specific_widgets = []
 
-                self.end_condition = StringVar()
+                def create_end_condition_dropdown(frame):
+                    def end_condition_change(*args):
+                        for w in end_condition_specific_widgets:
+                            w.destroy()
+                        if self.end_condition.get() == "Time or First Collision" or self.end_condition.get() == "Time":
+                            create_end_time_slider(frame)
 
-                options = ["Time", "First Collision", "Time or First Collision"]
-                # initial menu text
-                preset_frame = tk.Frame(frame)
-                drop = OptionMenu(preset_frame, self.end_condition, *options)
-                preset = tk.Label(preset_frame, text="End Simulation Condition: ",
-                                  font=(font, multiple_simulation_font_size))
-                preset.pack(side=LEFT)
-                drop.pack(side=LEFT)
-                preset_frame.pack(side=TOP, anchor=NW)
-                self.end_condition.trace("w", end_condition_change)
-                self.end_condition.set("Time or First Collision")
+                    self.end_condition = StringVar()
 
-            def create_end_time_slider(frame):
-                slider_frame = tk.Frame(frame)
-                end_condition_specific_widgets.append(slider_frame)
-                self.end_time_scale = Scale(slider_frame, from_=100, to=10000, orient=HORIZONTAL, length=150,
-                                            width=scale_width,
-                                            font=(font, multiple_simulation_font_size),
-                                            command=_screen_rules_updated)
-                self.end_time_scale.set(1000)
-                slider_label = tk.Label(slider_frame, text="End Timestep:",
-                                        font=font)
-                slider_label.pack(side=LEFT)
-                self.end_time_scale.pack(side=LEFT)
-                slider_frame.pack(side=TOP, anchor=NW)
+                    options = ["Time", "First Collision", "Time or First Collision"]
+                    # initial menu text
+                    preset_frame = tk.Frame(frame)
+                    drop = OptionMenu(preset_frame, self.end_condition, *options)
+                    preset = tk.Label(preset_frame, text="End Simulation Condition: ",
+                                      font=(font, multiple_simulation_font_size))
+                    preset.pack(side=LEFT)
+                    drop.pack(side=LEFT)
+                    preset_frame.pack(side=TOP, anchor=NW)
+                    self.end_condition.trace("w", end_condition_change)
+                    self.end_condition.set("Time or First Collision")
 
-            self.multiple_simulation_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354,
-                                                              height=150,
-                                                              highlightthickness=1)
-            self.multiple_simulation_control_frame.grid(row=2, column=0, pady=1, padx=4)
-            self.multiple_simulation_control_frame.pack_propagate(False)
-            label = tk.Label(self.multiple_simulation_control_frame, text="Multiple Simulations", font=(font, 15))
-            label.pack(side=TOP)
+                def create_end_time_slider(frame):
+                    slider_frame = tk.Frame(frame)
+                    end_condition_specific_widgets.append(slider_frame)
+                    self.end_time_scale = Scale(slider_frame, from_=100, to=10000, orient=HORIZONTAL, length=150,
+                                                width=scale_width,
+                                                font=(font, multiple_simulation_font_size),
+                                                command=_screen_rules_updated)
+                    self.end_time_scale.set(1000)
+                    slider_label = tk.Label(slider_frame, text="End Timestep:",
+                                            font=font)
+                    slider_label.pack(side=LEFT)
+                    self.end_time_scale.pack(side=LEFT)
+                    slider_frame.pack(side=TOP, anchor=NW)
 
-            create_number_simulations_slider(self.multiple_simulation_control_frame)
-            create_end_condition_dropdown(self.multiple_simulation_control_frame)
+                self.multiple_simulation_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354,
+                                                                  height=150,
+                                                                  highlightthickness=1)
+                self.multiple_simulation_control_frame.grid(row=2, column=0, pady=1, padx=4)
+                self.multiple_simulation_control_frame.pack_propagate(False)
+                label = tk.Label(self.multiple_simulation_control_frame, text="Multiple Simulations", font=(font, 15))
+                label.pack(side=TOP)
 
-        # Creates the Widget for the visual controls
-        def create_draw_controls(control_frame):
-            draw_controls_font_size = controls_font_size
+                create_number_simulations_slider(self.multiple_simulation_control_frame)
+                create_end_condition_dropdown(self.multiple_simulation_control_frame)
 
-            def create_com_button(draw_control_frame):
-                global com_button_on
-                com_button_on = True
+            # Creates the Widget for the visual controls
+            def create_draw_controls(control_frame):
+                draw_controls_font_size = controls_font_size
 
-                def start_button_clicked():
+                def create_com_button(draw_control_frame):
                     global com_button_on
-                    _screen_rules_updated()
-                    if com_button_on:
-                        com_frame.com_button.config(highlightbackground="white", text="Tracking (0,0)")
-                        com_button_on = False
-                        screen_rules_updated()
-                    else:
-                        com_frame.com_button.config(highlightbackground="green", text="Tracking Center Of Mass")
-                        com_button_on = True
-                        screen_rules_updated()
+                    com_button_on = True
 
-                com_frame = tk.Frame(draw_control_frame)
-                com_frame.com_button = tk.Button(com_frame, text="Tracking Center Of Mass",
-                                                 highlightbackground="green",
-                                                 command=start_button_clicked, font=(font, draw_controls_font_size),
-                                                 width=20)
+                    def start_button_clicked():
+                        global com_button_on
+                        _screen_rules_updated()
+                        if com_button_on:
+                            com_frame.com_button.config(highlightbackground="white", text="Tracking (0,0)")
+                            com_button_on = False
+                            screen_rules_updated()
+                        else:
+                            com_frame.com_button.config(highlightbackground="green", text="Tracking Center Of Mass")
+                            com_button_on = True
+                            screen_rules_updated()
 
-                com_label = tk.Label(com_frame, text="Center: ", font=(font, draw_controls_font_size))
-                com_label.pack(side=LEFT)
-                com_frame.com_button.pack(side=LEFT)
-                com_frame.pack(side=TOP, anchor=NW)
+                    com_frame = tk.Frame(draw_control_frame)
+                    com_frame.com_button = tk.Button(com_frame, text="Tracking Center Of Mass",
+                                                     highlightbackground="green",
+                                                     command=start_button_clicked, font=(font, draw_controls_font_size),
+                                                     width=20)
 
-            def create_zoom(draw_control_frame):
-                global zoom_scale
-                zoom_frame = tk.Frame(draw_control_frame)
-                zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
-                                   font=(font, draw_controls_font_size), showvalue=0, command=_screen_rules_updated)
-                zoom_scale.set(50)
-                zoom_label = tk.Label(zoom_frame, text="Zoom:",
-                                      font=(font, draw_controls_font_size))
-                zoom_label.pack(side=LEFT)
-                zoom_scale.pack(side=LEFT)
-                zoom_frame.pack(side=TOP, anchor=NW)
+                    com_label = tk.Label(com_frame, text="Center: ", font=(font, draw_controls_font_size))
+                    com_label.pack(side=LEFT)
+                    com_frame.com_button.pack(side=LEFT)
+                    com_frame.pack(side=TOP, anchor=NW)
 
-                def on_mousewheel(event):
-                    if self.draw_visuals:
-                        zoom = zoom_scale.get()
-                        zoom += event.delta
-                        zoom_scale.set(zoom)
+                def create_zoom(draw_control_frame):
+                    global zoom_scale
+                    zoom_frame = tk.Frame(draw_control_frame)
+                    zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
+                                       font=(font, draw_controls_font_size), showvalue=0, command=_screen_rules_updated)
+                    zoom_scale.set(50)
+                    zoom_label = tk.Label(zoom_frame, text="Zoom:",
+                                          font=(font, draw_controls_font_size))
+                    zoom_label.pack(side=LEFT)
+                    zoom_scale.pack(side=LEFT)
+                    zoom_frame.pack(side=TOP, anchor=NW)
 
-                global canvas
-                canvas.bind_all("<MouseWheel>", on_mousewheel)
+                    def on_mousewheel(event):
+                        if self.draw_visuals:
+                            zoom = zoom_scale.get()
+                            zoom += event.delta
+                            zoom_scale.set(zoom)
 
-            def create_aparent_size(draw_control_frame):
-                global aparent_size_scale
-                aparent_size_frame = tk.Frame(draw_control_frame)
-                aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
-                                           length=150, width=scale_width, font=(font, draw_controls_font_size),
-                                           showvalue=0, command=_screen_rules_updated)
-                aparent_size_scale.set(50)
-                aparent_size_label = tk.Label(aparent_size_frame, text="Aparent Size of Bodies:",
-                                              font=(font, draw_controls_font_size))
-                aparent_size_label.pack(side=LEFT)
-                aparent_size_scale.pack(side=LEFT)
-                aparent_size_frame.pack(side=TOP, anchor=NW)
+                    global canvas
+                    canvas.bind_all("<MouseWheel>", on_mousewheel)
 
-            def create_path_button(draw_control_frame):
-                global path_button_on
-                path_button_on = False
+                def create_aparent_size(draw_control_frame):
+                    global aparent_size_scale
+                    aparent_size_frame = tk.Frame(draw_control_frame)
+                    aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
+                                               length=150, width=scale_width, font=(font, draw_controls_font_size),
+                                               showvalue=0, command=_screen_rules_updated)
+                    aparent_size_scale.set(50)
+                    aparent_size_label = tk.Label(aparent_size_frame, text="Aparent Size of Bodies:",
+                                                  font=(font, draw_controls_font_size))
+                    aparent_size_label.pack(side=LEFT)
+                    aparent_size_scale.pack(side=LEFT)
+                    aparent_size_frame.pack(side=TOP, anchor=NW)
 
-                def start_button_clicked():
+                def create_path_button(draw_control_frame):
                     global path_button_on
-                    if path_button_on:
-                        path_frame.path_button.config(highlightbackground="white", text="Not Showing Paths")
-                        path_button_on = False
-                    else:
-                        path_frame.path_button.config(highlightbackground="green", text="Showing Paths")
-                        path_button_on = True
+                    path_button_on = False
 
-                path_frame = tk.Frame(draw_control_frame)
-                path_frame.path_button = tk.Button(path_frame, text="Not Showing Paths",
-                                                   highlightbackground="white",
-                                                   command=start_button_clicked, font=(font, draw_controls_font_size),
-                                                   width=20)
+                    def start_button_clicked():
+                        global path_button_on
+                        if path_button_on:
+                            path_frame.path_button.config(highlightbackground="white", text="Not Showing Paths")
+                            path_button_on = False
+                        else:
+                            path_frame.path_button.config(highlightbackground="green", text="Showing Paths")
+                            path_button_on = True
 
-                path_label = tk.Label(path_frame, text="Real Time Body Paths: ", font=(font, draw_controls_font_size))
-                path_label.pack(side=LEFT)
-                path_frame.path_button.pack(side=LEFT)
-                path_frame.pack(side=TOP, anchor=NW)
+                    path_frame = tk.Frame(draw_control_frame)
+                    path_frame.path_button = tk.Button(path_frame, text="Not Showing Paths",
+                                                       highlightbackground="white",
+                                                       command=start_button_clicked,
+                                                       font=(font, draw_controls_font_size),
+                                                       width=20)
 
-            def create_starting_path_button(draw_control_frame):
-                global starting_path_button_on
-                starting_path_button_on = False
+                    path_label = tk.Label(path_frame, text="Real Time Body Paths: ",
+                                          font=(font, draw_controls_font_size))
+                    path_label.pack(side=LEFT)
+                    path_frame.path_button.pack(side=LEFT)
+                    path_frame.pack(side=TOP, anchor=NW)
+
+                def create_starting_path_button(draw_control_frame):
+                    global starting_path_button_on
+                    starting_path_button_on = False
+
+                    def start_button_clicked():
+                        global starting_path_button_on
+                        _screen_rules_updated()
+                        if starting_path_button_on:
+                            starting_path_frame.starting_path_button.config(highlightbackground="white",
+                                                                            text="Not Showing Starting Paths")
+                            starting_path_button_on = False
+                        else:
+                            starting_path_frame.starting_path_button.config(highlightbackground="green",
+                                                                            text="Showing Starting Paths")
+                            starting_path_button_on = True
+
+                    starting_path_frame = tk.Frame(draw_control_frame)
+                    starting_path_frame.starting_path_button = tk.Button(starting_path_frame,
+                                                                         text="Not Showing Starting Paths",
+                                                                         highlightbackground="white",
+                                                                         command=start_button_clicked,
+                                                                         font=(font, draw_controls_font_size), width=25)
+
+                    starting_path_label = tk.Label(starting_path_frame, text="Starting Body Paths: ",
+                                                   font=(font, draw_controls_font_size))
+                    starting_path_label.pack(side=LEFT)
+                    starting_path_frame.starting_path_button.pack(side=LEFT)
+                    starting_path_frame.pack(side=TOP, anchor=NW)
+
+                draw_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=150,
+                                              highlightthickness=1)
+                draw_control_frame.grid(row=2, column=0, pady=1, padx=4)
+                draw_control_frame.pack_propagate(False)
+                draw_control_label = tk.Label(draw_control_frame, text="Visuals", font=(font, 15))
+                draw_control_label.pack(side=TOP)
+
+                create_com_button(draw_control_frame)
+                create_zoom(draw_control_frame)
+                create_aparent_size(draw_control_frame)
+                create_path_button(draw_control_frame)
+                create_starting_path_button(draw_control_frame)
+                self.draw_control_frame = draw_control_frame
+
+            # Creates the Widget for the starting controls
+            def create_starting_controls(control_frame):
+                starting_controls_font_size = controls_font_size
+
+                def create_preset_menu(starting_frame):
+                    options = [f for f in listdir("saved-start-conditions") if
+                               isfile(join("saved-start-conditions", f))]
+                    options.insert(0, "No Preset")
+                    # initial menu text
+                    start_condition.set("No Preset")
+                    # Create Dropdown menu
+                    preset_frame = tk.Frame(starting_frame)
+                    drop = OptionMenu(preset_frame, start_condition, *options)
+                    preset = tk.Label(preset_frame, text="Preset: ", font=(font, starting_controls_font_size))
+                    preset.pack(side=LEFT)
+                    drop.pack(side=LEFT)
+                    preset_frame.pack(side=TOP, anchor=NW)
+
+                def create_number_bodies(starting_frame):
+                    global number_bodies_scale
+                    number_bodies_frame = tk.Frame(starting_frame)
+                    number_bodies_scale = NonLinearScale(number_bodies_frame, from_=2, to=95, orient=HORIZONTAL,
+                                                         length=150,
+                                                         width=scale_width, font=(font, starting_controls_font_size))
+                    number_bodies_label = tk.Label(number_bodies_frame, text="Number of Bodies: ",
+                                                   font=(font, starting_controls_font_size))
+                    number_bodies_label.pack(side=LEFT)
+                    number_bodies_scale.pack(side=LEFT)
+                    number_bodies_frame.pack(side=TOP, anchor=NW)
+
+                def create_distribution_area(starting_frame):
+                    distribution_area_label = tk.Label(starting_frame, text="Distribution of Bodies:",
+                                                       font=(font, starting_controls_font_size))
+                    distribution_area_label.pack(side=TOP, anchor=NW)
+                    distribution_area_frame = tk.Frame(starting_frame)
+                    global distribution_area
+                    x_min = tk.StringVar()
+                    x_max = tk.StringVar()
+                    y_min = tk.StringVar()
+                    y_max = tk.StringVar()
+                    x_min.set("-200")
+                    y_min.set("-200")
+                    x_max.set("200")
+                    y_max.set("200")
+                    distribution_area = [x_min, x_max, y_min, y_max]
+                    x_min_entry = tk.Entry(distribution_area_frame, textvariable=x_min, width=3,
+                                           font=(font, starting_controls_font_size))
+                    x_max_entry = tk.Entry(distribution_area_frame, textvariable=x_max, width=3,
+                                           font=(font, starting_controls_font_size))
+                    y_min_entry = tk.Entry(distribution_area_frame, textvariable=y_min, width=3,
+                                           font=(font, starting_controls_font_size))
+                    y_max_entry = tk.Entry(distribution_area_frame, textvariable=y_max, width=3,
+                                           font=(font, starting_controls_font_size))
+                    distribution_area_label1 = tk.Label(distribution_area_frame, text="Xmin:",
+                                                        font=(font, starting_controls_font_size))
+                    distribution_area_label2 = tk.Label(distribution_area_frame, text="Xmax:",
+                                                        font=(font, starting_controls_font_size))
+                    distribution_area_label3 = tk.Label(distribution_area_frame, text="Ymin:",
+                                                        font=(font, starting_controls_font_size))
+                    distribution_area_label4 = tk.Label(distribution_area_frame, text="Ymax:",
+                                                        font=(font, starting_controls_font_size))
+
+                    distribution_area_label1.pack(side=LEFT)
+                    x_min_entry.pack(side=LEFT)
+                    distribution_area_label2.pack(side=LEFT)
+                    x_max_entry.pack(side=LEFT)
+                    distribution_area_label3.pack(side=LEFT)
+                    y_min_entry.pack(side=LEFT)
+                    distribution_area_label4.pack(side=LEFT)
+                    y_max_entry.pack(side=LEFT)
+                    distribution_area_frame.pack(side=TOP, anchor=NW)
+
+                def create_mass_entry(starting_frame):
+                    mass_entry_frame = tk.Frame(starting_frame)
+                    global starting_mass
+                    starting_mass = tk.StringVar()
+                    starting_mass.set("100")
+                    starting_mass_entry = tk.Entry(mass_entry_frame, textvariable=starting_mass, width=3,
+                                                   font=(font, starting_controls_font_size))
+                    starting_mass_label = tk.Label(mass_entry_frame, text="Starting Mass of Bodies:",
+                                                   font=(font, starting_controls_font_size))
+                    starting_mass_label.pack(side=LEFT)
+                    starting_mass_entry.pack(side=LEFT)
+                    mass_entry_frame.pack(side=TOP, anchor=NW)
+
+                def create_radius_entry(starting_frame):
+                    radius_entry_frame = tk.Frame(starting_frame)
+                    global starting_radius
+                    starting_radius = tk.StringVar()
+                    starting_radius.set("10")
+                    starting_radius_entry = tk.Entry(radius_entry_frame, textvariable=starting_radius, width=3,
+                                                     font=(font, starting_controls_font_size))
+                    starting_radius_label = tk.Label(radius_entry_frame, text="Starting Radius of Bodies:",
+                                                     font=(font, starting_controls_font_size))
+                    starting_radius_label.pack(side=LEFT)
+                    starting_radius_entry.pack(side=LEFT)
+                    radius_entry_frame.pack(side=TOP, anchor=NW)
+
+                def create_velocity_entry(starting_frame):
+                    velocity_entry_frame = tk.Frame(starting_frame)
+                    global starting_velocity
+                    starting_velocity = tk.StringVar()
+                    starting_velocity.set("1")
+                    starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=starting_velocity, width=3,
+                                                       font=(font, starting_controls_font_size))
+                    starting_velocity_label = tk.Label(velocity_entry_frame,
+                                                       text="Average Starting Velocity of Bodies:",
+                                                       font=(font, starting_controls_font_size))
+                    starting_velocity_label.pack(side=LEFT)
+                    starting_velocity_entry.pack(side=LEFT)
+                    velocity_entry_frame.pack(side=TOP, anchor=NW)
+
+                def create_rotation_entry(starting_frame):
+                    rotation_entry_frame = tk.Frame(starting_frame)
+                    global starting_rotation
+                    starting_rotation = tk.StringVar()
+                    starting_rotation.set("0")
+                    starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=starting_rotation, width=3,
+                                                       font=(font, starting_controls_font_size))
+                    starting_rotation_label = tk.Label(rotation_entry_frame,
+                                                       text="Average Starting Rotation of Bodies:",
+                                                       font=(font, starting_controls_font_size))
+                    starting_rotation_label.pack(side=LEFT)
+                    starting_rotation_entry.pack(side=LEFT)
+                    rotation_entry_frame.pack(side=TOP, anchor=NW)
+
+                starting_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=240,
+                                          highlightthickness=1)
+                starting_frame.grid(row=3, column=0, pady=0, padx=4)
+                starting_frame.pack_propagate(False)
+                starting = tk.Label(starting_frame, text="Starting Conditions", width=33, font=(font, 15))
+                # starting.grid(row=0, column=0, columnspan=3, pady=2, padx=2)
+                starting.pack(side=TOP)
+
+                create_preset_menu(starting_frame)
+                create_number_bodies(starting_frame)
+                create_distribution_area(starting_frame)
+                create_mass_entry(starting_frame)
+                create_radius_entry(starting_frame)
+                create_velocity_entry(starting_frame)
+                create_rotation_entry(starting_frame)
+
+            # Creates the Widget for the model controls
+            def create_model_controls(control_frame):
+                model_controls_font_size = controls_font_size
+                model_specific_widgets = []
+
+                def create_model_menu(model_frame):
+                    global selected_model
+                    global model_descriptions
+                    global models
+                    model_description = StringVar()
+
+                    def selected_model_change(*args):
+                        for w in model_specific_widgets:
+                            w.destroy()
+                        if selected_model.get() == "Dynamic Interval":
+                            create_dynamic_interval_model_menu(model_frame)
+                        model_description.set(model_descriptions[selected_model.get()])
+
+                    selected_model = StringVar()
+                    selected_model.trace("w", selected_model_change)
+                    options = models
+                    # initial menu text
+                    selected_model.set(options[0])
+                    # Create Dropdown menu
+                    model_menu_frame = tk.Frame(model_frame)
+                    model_menu_dropdown = OptionMenu(model_menu_frame, selected_model, *options)
+                    CreateToolTip(model_menu_dropdown, text=model_description)
+                    model_menu_label = tk.Label(model_menu_frame, text="Models: ",
+                                                font=(font, model_controls_font_size))
+                    model_menu_label.pack(side=LEFT)
+                    model_menu_dropdown.pack(side=LEFT)
+                    model_menu_frame.pack(side=TOP, anchor=NW)
+
+                def create_dynamic_interval_model_menu(model_frame):
+                    global dynamic_interval_scale
+                    dynamic_interval_model_frame = tk.Frame(model_frame)
+                    dynamic_interval_scale = Scale(dynamic_interval_model_frame, from_=1, to=100, orient=HORIZONTAL,
+                                                   length=150)
+                    CreateToolTip(dynamic_interval_scale,
+                                  text='Modifier determing how much timesteps are slowed while objects are passing close, higher numbers lead to slower interactions',
+                                  add_y=20)
+
+                    dynamic_interval_model_label = tk.Label(dynamic_interval_model_frame, text="Interval Modifier: ",
+                                                            font=(font, model_controls_font_size))
+                    dynamic_interval_model_label.pack(side=LEFT)
+                    dynamic_interval_scale.pack(side=LEFT)
+                    dynamic_interval_model_frame.pack(side=TOP, anchor=NW)
+                    model_specific_widgets.append(dynamic_interval_model_label)
+                    model_specific_widgets.append(dynamic_interval_scale)
+                    model_specific_widgets.append(dynamic_interval_model_frame)
+
+                model_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=90,
+                                       highlightthickness=1)
+                model_frame.grid(row=4, column=0, pady=1, padx=4)
+                model_frame.pack_propagate(False)
+                model = tk.Label(model_frame, text="Simulation Model", font=(font, 15))
+                model.pack(side=TOP)
+
+                create_model_menu(model_frame)
+
+            # Creates the Widget for the data controls
+            def create_data_controls(control_frame):
+                data_controls_font_size = controls_font_size
+
+                def create_energy_graph_controls(data_frame):
+                    energy_graph_top_frame = tk.Frame(data_frame)
+                    energy_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
+                    global energy_graph_update_scale
+                    energy_graph_update_scale = Scale(energy_graph_bottom_frame, from_=1, to=200, orient=HORIZONTAL,
+                                                      length=150, width=scale_width, bg="gray",
+                                                      font=(font, data_controls_font_size), showvalue=0)
+                    energy_graph_update_scale.set(100)
+                    energy_graph_update_scale.configure(state=DISABLED)
+                    energy_graph_update_label = tk.Label(energy_graph_bottom_frame, text="Graph Update Interval:",
+                                                         font=(font, data_controls_font_size), bg="gray")
+
+                    global graph_energy
+                    graph_energy = False
+
+                    def graph_energy_button_clicked():
+                        global graph_energy
+                        if graph_energy:
+                            energy_graph_top_frame.graph_energy_button.config(highlightbackground="white",
+                                                                              text="Off")
+                            graph_energy = False
+                            energy_graph_update_label.configure(bg="gray")
+                            energy_graph_update_scale.configure(bg="gray")
+                            energy_graph_update_scale.configure(state=DISABLED)
+                            energy_graph_bottom_frame.configure(bg="gray")
+
+                        else:
+                            energy_graph_top_frame.graph_energy_button.config(highlightbackground="green",
+                                                                              text="On")
+
+                            graph_energy = True
+                            energy_graph_update_label.configure(bg="white")
+                            energy_graph_update_scale.configure(bg="white")
+                            energy_graph_update_scale.configure(state=NORMAL)
+                            energy_graph_bottom_frame.configure(bg="white")
+
+                    energy_graph_top_frame.graph_energy_button = tk.Button(energy_graph_top_frame, text="Off",
+                                                                           highlightbackground="white",
+                                                                           command=graph_energy_button_clicked,
+                                                                           font=(font, data_controls_font_size),
+                                                                           width=20)
+
+                    energy_graph_label = tk.Label(energy_graph_top_frame, text="Graph Energy: ",
+                                                  font=(font, data_controls_font_size))
+                    energy_graph_label.pack(side=LEFT)
+                    energy_graph_top_frame.graph_energy_button.pack(side=LEFT)
+                    energy_graph_top_frame.pack(side=TOP, anchor=NW)
+
+                    energy_graph_update_label.pack(side=LEFT)
+                    energy_graph_update_scale.pack(side=LEFT)
+                    energy_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
+
+                def create_actual_variance_graph_controls(data_frame):
+                    actual_variance_graph_top_frame = tk.Frame(data_frame)
+                    actual_variance_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
+                    global actual_variance_graph_update_scale
+                    actual_variance_graph_update_scale = Scale(actual_variance_graph_bottom_frame, from_=1, to=200,
+                                                               orient=HORIZONTAL,
+                                                               length=150, width=scale_width, bg="gray",
+                                                               font=(font, data_controls_font_size), showvalue=0)
+                    actual_variance_graph_update_scale.set(100)
+                    actual_variance_graph_update_scale.configure(state=DISABLED)
+                    actual_variance_graph_update_label = tk.Label(actual_variance_graph_bottom_frame,
+                                                                  text="Graph Update Interval:",
+                                                                  font=(font, data_controls_font_size), bg="gray")
+
+                    global graph_actual_variance
+                    graph_actual_variance = False
+
+                    def graph_actual_variance_button_clicked():
+                        global graph_actual_variance
+                        if graph_actual_variance:
+                            actual_variance_graph_top_frame.graph_actual_variance_button.config(
+                                highlightbackground="white",
+                                text="Off")
+                            graph_actual_variance = False
+                            actual_variance_graph_update_label.configure(bg="gray")
+                            actual_variance_graph_update_scale.configure(bg="gray")
+                            actual_variance_graph_update_scale.configure(state=DISABLED)
+                            actual_variance_graph_bottom_frame.configure(bg="gray")
+
+                        else:
+                            actual_variance_graph_top_frame.graph_actual_variance_button.config(
+                                highlightbackground="green",
+                                text="On")
+
+                            graph_actual_variance = True
+                            actual_variance_graph_update_label.configure(bg="white")
+                            actual_variance_graph_update_scale.configure(bg="white")
+                            actual_variance_graph_update_scale.configure(state=NORMAL)
+                            actual_variance_graph_bottom_frame.configure(bg="white")
+
+                    actual_variance_graph_top_frame.graph_actual_variance_button = tk.Button(
+                        actual_variance_graph_top_frame, text="Off",
+                        highlightbackground="white",
+                        command=graph_actual_variance_button_clicked,
+                        font=(font, data_controls_font_size), width=20)
+
+                    actual_variance_graph_label = tk.Label(actual_variance_graph_top_frame,
+                                                           text="Graph Actual Variance: ",
+                                                           font=(font, data_controls_font_size))
+                    actual_variance_graph_label.pack(side=LEFT)
+                    actual_variance_graph_top_frame.graph_actual_variance_button.pack(side=LEFT)
+                    actual_variance_graph_top_frame.pack(side=TOP, anchor=NW)
+
+                    actual_variance_graph_update_label.pack(side=LEFT)
+                    actual_variance_graph_update_scale.pack(side=LEFT)
+                    actual_variance_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
+
+                def create_download_field(data_frame):
+                    download_field_frame = tk.Frame(data_frame)
+                    CreateToolTip(download_field_frame,
+                                  text="Download graph data from the last simulations (will not work while running)")
+                    download_file_name = tk.StringVar()
+
+                    def download_field_button_clicked():
+                        if len(self.simulations) != 0 and self.simulations[0].running == False:
+                            if download_file_name.get() != "":
+                                try:
+                                    file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
+                                except FileExistsError:
+                                    return
+                                file.write(download_file_name.get())
+                                i = 0
+                                for simulation in self.simulations:
+                                    file.write("Simulation " + str(i) + "\n")
+                                    file.write("Runtime: "+str(simulation.current_time)+"\n")
+                                    file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
+                                    file.write(
+                                        "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")
+                                    if simulation.two_planet_start == True:
+                                        file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
+                                        file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
+                                    i += 1
+
+                    download_field_frame.download_fields_button = tk.Button(download_field_frame, text="Download",
+                                                                            highlightbackground="white",
+                                                                            command=download_field_button_clicked,
+                                                                            font=(
+                                                                                font,
+                                                                                math.floor(data_controls_font_size)),
+                                                                            width=9, activebackground="gray")
+
+                    download_field_entry = tk.Entry(download_field_frame, textvariable=download_file_name, width=25,
+                                                    font=(font, data_controls_font_size))
+
+                    download_field_label = tk.Label(download_field_frame, text="FileName: ",
+                                                    font=(font, data_controls_font_size))
+                    download_field_label.pack(side=LEFT)
+                    download_field_entry.pack(side=LEFT)
+                    download_field_frame.download_fields_button.pack(side=LEFT)
+                    download_field_frame.pack(side=TOP, anchor=NW)
+
+                data_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=140,
+                                      highlightthickness=1)
+                data_frame.grid(row=5, column=0, pady=0, padx=4)
+                data_frame.pack_propagate(False)
+                data = tk.Label(data_frame, text="Data", font=(font, 15))
+                data.pack(side=TOP)
+
+                create_energy_graph_controls(data_frame)
+                create_actual_variance_graph_controls(data_frame)
+                create_download_field(data_frame)
+
+            # Creates the Widget for the starting button
+            def create_start_button(control_frame):
 
                 def start_button_clicked():
-                    global starting_path_button_on
-                    _screen_rules_updated()
-                    if starting_path_button_on:
-                        starting_path_frame.starting_path_button.config(highlightbackground="white",
-                                                                        text="Not Showing Starting Paths")
-                        starting_path_button_on = False
+                    if len(self.simulations) == 0 or self.simulations[0].running == False:
+                        control_frame.start_button.config(highlightbackground="red", text="End Simulation")
+                        self.start_simulations(start_condition.get())
                     else:
-                        starting_path_frame.starting_path_button.config(highlightbackground="green",
-                                                                        text="Showing Starting Paths")
-                        starting_path_button_on = True
+                        control_frame.start_button.config(highlightbackground="green", text="Start Simulation")
+                        self.end_simulations()
 
-                starting_path_frame = tk.Frame(draw_control_frame)
-                starting_path_frame.starting_path_button = tk.Button(starting_path_frame,
-                                                                     text="Not Showing Starting Paths",
-                                                                     highlightbackground="white",
-                                                                     command=start_button_clicked,
-                                                                     font=(font, draw_controls_font_size), width=25)
+                control_frame.start_button = tk.Button(control_frame, text="Start Simulation",
+                                                       highlightbackground="green",
+                                                       command=start_button_clicked, width=16, font=(font, 20))
+                control_frame.start_button.grid(row=6, column=0, pady=4, padx=4)
 
-                starting_path_label = tk.Label(starting_path_frame, text="Starting Body Paths: ",
-                                               font=(font, draw_controls_font_size))
-                starting_path_label.pack(side=LEFT)
-                starting_path_frame.starting_path_button.pack(side=LEFT)
-                starting_path_frame.pack(side=TOP, anchor=NW)
+            # Creates the Controls Title
+            control_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=800,
+                                     highlightthickness=2)
+            control_frame.grid(row=1, column=0, rowspan=2, pady=8, padx=8)
+            control_frame.grid_propagate(False)
+            title = tk.Label(control_frame, text="Controls", font=(font, 25))
+            title.grid(row=0, column=0, pady=0, padx=4)
 
-            draw_control_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=150,
-                                          highlightthickness=1)
-            draw_control_frame.grid(row=2, column=0, pady=1, padx=4)
-            draw_control_frame.pack_propagate(False)
-            draw_control_label = tk.Label(draw_control_frame, text="Visuals", font=(font, 15))
-            draw_control_label.pack(side=TOP)
+            create_general_controls(control_frame)
+            create_draw_controls(control_frame)
+            create_starting_controls(control_frame)
+            create_data_controls(control_frame)
+            create_model_controls(control_frame)
+            create_start_button(control_frame)
 
-            create_com_button(draw_control_frame)
-            create_zoom(draw_control_frame)
-            create_aparent_size(draw_control_frame)
-            create_path_button(draw_control_frame)
-            create_starting_path_button(draw_control_frame)
-            self.draw_control_frame = draw_control_frame
+        # Creates the widget that contains the visuals
+        def create_canvas():
+            canvas_frame = tk.Frame(self.window, highlightbackground="black", width=800, height=800,
+                                    highlightthickness=2)
+            canvas_frame.grid(row=1, column=1, rowspan=2, pady=8, padx=8)
+            global canvas
+            canvas = tk.Canvas(canvas_frame, width=800, height=800)
+            canvas.grid(row=0, column=0)
+            global drawn_objects
+            drawn_objects = []
+            return canvas
 
-        # Creates the Widget for the starting controls
-        def create_starting_controls(control_frame):
-            starting_controls_font_size = controls_font_size
+        # Creates the widget that contains the graphs
+        def create_graphs():
+            graphs_font_size = 20
+            global energy_graph_frame
+            energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
+                                          highlightthickness=2)
+            energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
+            energy_graph_frame.grid_propagate(False)
+            energy_graph_label = tk.Label(energy_graph_frame, text="Energy at each Timestep",
+                                          font=(font, 25))
+            energy_graph_label.grid(row=0, column=0)
 
-            def create_preset_menu(starting_frame):
-                options = [f for f in listdir("saved-start-conditions") if isfile(join("saved-start-conditions", f))]
-                options.insert(0, "No Preset")
-                # initial menu text
-                start_condition.set("No Preset")
-                # Create Dropdown menu
-                preset_frame = tk.Frame(starting_frame)
-                drop = OptionMenu(preset_frame, start_condition, *options)
-                preset = tk.Label(preset_frame, text="Preset: ", font=(font, starting_controls_font_size))
-                preset.pack(side=LEFT)
-                drop.pack(side=LEFT)
-                preset_frame.pack(side=TOP, anchor=NW)
+            global actual_variance_graph_frame
+            actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
+                                                   highlightthickness=2)
+            actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
+            actual_variance_graph_frame.grid_propagate(False)
+            actual_variance_graph_label = tk.Label(actual_variance_graph_frame, text="Model and Actual Difference",
+                                                   font=(font, 25))
+            actual_variance_graph_label.grid(row=0, column=0)
 
-            def create_number_bodies(starting_frame):
-                global number_bodies_scale
-                number_bodies_frame = tk.Frame(starting_frame)
-                number_bodies_scale = NonLinearScale(number_bodies_frame, from_=2, to=95, orient=HORIZONTAL, length=150,
-                                                     width=scale_width, font=(font, starting_controls_font_size))
-                number_bodies_label = tk.Label(number_bodies_frame, text="Number of Bodies: ",
-                                               font=(font, starting_controls_font_size))
-                number_bodies_label.pack(side=LEFT)
-                number_bodies_scale.pack(side=LEFT)
-                number_bodies_frame.pack(side=TOP, anchor=NW)
-
-            def create_distribution_area(starting_frame):
-                distribution_area_label = tk.Label(starting_frame, text="Distribution of Bodies:",
-                                                   font=(font, starting_controls_font_size))
-                distribution_area_label.pack(side=TOP, anchor=NW)
-                distribution_area_frame = tk.Frame(starting_frame)
-                global distribution_area
-                x_min = tk.StringVar()
-                x_max = tk.StringVar()
-                y_min = tk.StringVar()
-                y_max = tk.StringVar()
-                x_min.set("-200")
-                y_min.set("-200")
-                x_max.set("200")
-                y_max.set("200")
-                distribution_area = [x_min, x_max, y_min, y_max]
-                x_min_entry = tk.Entry(distribution_area_frame, textvariable=x_min, width=3,
-                                       font=(font, starting_controls_font_size))
-                x_max_entry = tk.Entry(distribution_area_frame, textvariable=x_max, width=3,
-                                       font=(font, starting_controls_font_size))
-                y_min_entry = tk.Entry(distribution_area_frame, textvariable=y_min, width=3,
-                                       font=(font, starting_controls_font_size))
-                y_max_entry = tk.Entry(distribution_area_frame, textvariable=y_max, width=3,
-                                       font=(font, starting_controls_font_size))
-                distribution_area_label1 = tk.Label(distribution_area_frame, text="Xmin:",
-                                                    font=(font, starting_controls_font_size))
-                distribution_area_label2 = tk.Label(distribution_area_frame, text="Xmax:",
-                                                    font=(font, starting_controls_font_size))
-                distribution_area_label3 = tk.Label(distribution_area_frame, text="Ymin:",
-                                                    font=(font, starting_controls_font_size))
-                distribution_area_label4 = tk.Label(distribution_area_frame, text="Ymax:",
-                                                    font=(font, starting_controls_font_size))
-
-                distribution_area_label1.pack(side=LEFT)
-                x_min_entry.pack(side=LEFT)
-                distribution_area_label2.pack(side=LEFT)
-                x_max_entry.pack(side=LEFT)
-                distribution_area_label3.pack(side=LEFT)
-                y_min_entry.pack(side=LEFT)
-                distribution_area_label4.pack(side=LEFT)
-                y_max_entry.pack(side=LEFT)
-                distribution_area_frame.pack(side=TOP, anchor=NW)
-
-            def create_mass_entry(starting_frame):
-                mass_entry_frame = tk.Frame(starting_frame)
-                global starting_mass
-                starting_mass = tk.StringVar()
-                starting_mass.set("100")
-                starting_mass_entry = tk.Entry(mass_entry_frame, textvariable=starting_mass, width=3,
-                                               font=(font, starting_controls_font_size))
-                starting_mass_label = tk.Label(mass_entry_frame, text="Starting Mass of Bodies:",
-                                               font=(font, starting_controls_font_size))
-                starting_mass_label.pack(side=LEFT)
-                starting_mass_entry.pack(side=LEFT)
-                mass_entry_frame.pack(side=TOP, anchor=NW)
-
-            def create_radius_entry(starting_frame):
-                radius_entry_frame = tk.Frame(starting_frame)
-                global starting_radius
-                starting_radius = tk.StringVar()
-                starting_radius.set("10")
-                starting_radius_entry = tk.Entry(radius_entry_frame, textvariable=starting_radius, width=3,
-                                                 font=(font, starting_controls_font_size))
-                starting_radius_label = tk.Label(radius_entry_frame, text="Starting Radius of Bodies:",
-                                                 font=(font, starting_controls_font_size))
-                starting_radius_label.pack(side=LEFT)
-                starting_radius_entry.pack(side=LEFT)
-                radius_entry_frame.pack(side=TOP, anchor=NW)
-
-            def create_velocity_entry(starting_frame):
-                velocity_entry_frame = tk.Frame(starting_frame)
-                global starting_velocity
-                starting_velocity = tk.StringVar()
-                starting_velocity.set("1")
-                starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=starting_velocity, width=3,
-                                                   font=(font, starting_controls_font_size))
-                starting_velocity_label = tk.Label(velocity_entry_frame, text="Average Starting Velocity of Bodies:",
-                                                   font=(font, starting_controls_font_size))
-                starting_velocity_label.pack(side=LEFT)
-                starting_velocity_entry.pack(side=LEFT)
-                velocity_entry_frame.pack(side=TOP, anchor=NW)
-
-            def create_rotation_entry(starting_frame):
-                rotation_entry_frame = tk.Frame(starting_frame)
-                global starting_rotation
-                starting_rotation = tk.StringVar()
-                starting_rotation.set("0")
-                starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=starting_rotation, width=3,
-                                                   font=(font, starting_controls_font_size))
-                starting_rotation_label = tk.Label(rotation_entry_frame, text="Average Starting Rotation of Bodies:",
-                                                   font=(font, starting_controls_font_size))
-                starting_rotation_label.pack(side=LEFT)
-                starting_rotation_entry.pack(side=LEFT)
-                rotation_entry_frame.pack(side=TOP, anchor=NW)
-
-            starting_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=240,
-                                      highlightthickness=1)
-            starting_frame.grid(row=3, column=0, pady=0, padx=4)
-            starting_frame.pack_propagate(False)
-            starting = tk.Label(starting_frame, text="Starting Conditions", width=33, font=(font, 15))
-            # starting.grid(row=0, column=0, columnspan=3, pady=2, padx=2)
-            starting.pack(side=TOP)
-
-            create_preset_menu(starting_frame)
-            create_number_bodies(starting_frame)
-            create_distribution_area(starting_frame)
-            create_mass_entry(starting_frame)
-            create_radius_entry(starting_frame)
-            create_velocity_entry(starting_frame)
-            create_rotation_entry(starting_frame)
-
-        # Creates the Widget for the model controls
-        def create_model_controls(control_frame):
-            model_controls_font_size = controls_font_size
-            model_specific_widgets = []
-
-            def create_model_menu(model_frame):
-                global selected_model
-                global model_descriptions
-                global models
-                model_description = StringVar()
-
-                def selected_model_change(*args):
-                    for w in model_specific_widgets:
-                        w.destroy()
-                    if selected_model.get() == "Dynamic Interval":
-                        create_dynamic_interval_model_menu(model_frame)
-                    model_description.set(model_descriptions[selected_model.get()])
-
-                selected_model = StringVar()
-                selected_model.trace("w", selected_model_change)
-                options = models
-                # initial menu text
-                selected_model.set(options[0])
-                # Create Dropdown menu
-                model_menu_frame = tk.Frame(model_frame)
-                model_menu_dropdown = OptionMenu(model_menu_frame, selected_model, *options)
-                CreateToolTip(model_menu_dropdown, text=model_description)
-                model_menu_label = tk.Label(model_menu_frame, text="Models: ", font=(font, model_controls_font_size))
-                model_menu_label.pack(side=LEFT)
-                model_menu_dropdown.pack(side=LEFT)
-                model_menu_frame.pack(side=TOP, anchor=NW)
-
-            def create_dynamic_interval_model_menu(model_frame):
-                global dynamic_interval_scale
-                dynamic_interval_model_frame = tk.Frame(model_frame)
-                dynamic_interval_scale = Scale(dynamic_interval_model_frame, from_=1, to=100, orient=HORIZONTAL,
-                                               length=150)
-                CreateToolTip(dynamic_interval_scale,
-                              text='Modifier determing how much timesteps are slowed while objects are passing close, higher numbers lead to slower interactions',
-                              add_y=20)
-
-                dynamic_interval_model_label = tk.Label(dynamic_interval_model_frame, text="Interval Modifier: ",
-                                                        font=(font, model_controls_font_size))
-                dynamic_interval_model_label.pack(side=LEFT)
-                dynamic_interval_scale.pack(side=LEFT)
-                dynamic_interval_model_frame.pack(side=TOP, anchor=NW)
-                model_specific_widgets.append(dynamic_interval_model_label)
-                model_specific_widgets.append(dynamic_interval_scale)
-                model_specific_widgets.append(dynamic_interval_model_frame)
-
-            model_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=90,
-                                   highlightthickness=1)
-            model_frame.grid(row=4, column=0, pady=1, padx=4)
-            model_frame.pack_propagate(False)
-            model = tk.Label(model_frame, text="Simulation Model", font=(font, 15))
-            model.pack(side=TOP)
-
-            create_model_menu(model_frame)
-
-        # Creates the Widget for the data controls
-        def create_data_controls(control_frame):
-            data_controls_font_size = controls_font_size
-
-            def create_energy_graph_controls(data_frame):
-                energy_graph_top_frame = tk.Frame(data_frame)
-                energy_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
-                global energy_graph_update_scale
-                energy_graph_update_scale = Scale(energy_graph_bottom_frame, from_=1, to=100, orient=HORIZONTAL,
-                                                  length=150, width=scale_width, bg="gray",
-                                                  font=(font, data_controls_font_size), showvalue=0)
-                energy_graph_update_scale.set(5)
-                energy_graph_update_scale.configure(state=DISABLED)
-                energy_graph_update_label = tk.Label(energy_graph_bottom_frame, text="Graph Update Interval:",
-                                                     font=(font, data_controls_font_size), bg="gray")
-
-                global graph_energy
-                graph_energy = False
-
-                def graph_energy_button_clicked():
-                    global graph_energy
-                    if graph_energy:
-                        energy_graph_top_frame.graph_energy_button.config(highlightbackground="white",
-                                                                          text="Off")
-                        graph_energy = False
-                        energy_graph_update_label.configure(bg="gray")
-                        energy_graph_update_scale.configure(bg="gray")
-                        energy_graph_update_scale.configure(state=DISABLED)
-                        energy_graph_bottom_frame.configure(bg="gray")
-
-                    else:
-                        energy_graph_top_frame.graph_energy_button.config(highlightbackground="green",
-                                                                          text="On")
-
-                        graph_energy = True
-                        energy_graph_update_label.configure(bg="white")
-                        energy_graph_update_scale.configure(bg="white")
-                        energy_graph_update_scale.configure(state=NORMAL)
-                        energy_graph_bottom_frame.configure(bg="white")
-
-                energy_graph_top_frame.graph_energy_button = tk.Button(energy_graph_top_frame, text="Off",
-                                                                       highlightbackground="white",
-                                                                       command=graph_energy_button_clicked,
-                                                                       font=(font, data_controls_font_size), width=20)
-
-                energy_graph_label = tk.Label(energy_graph_top_frame, text="Graph Energy: ",
-                                              font=(font, data_controls_font_size))
-                energy_graph_label.pack(side=LEFT)
-                energy_graph_top_frame.graph_energy_button.pack(side=LEFT)
-                energy_graph_top_frame.pack(side=TOP, anchor=NW)
-
-                energy_graph_update_label.pack(side=LEFT)
-                energy_graph_update_scale.pack(side=LEFT)
-                energy_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
-
-            def create_actual_variance_graph_controls(data_frame):
-                actual_variance_graph_top_frame = tk.Frame(data_frame)
-                actual_variance_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
-                global actual_variance_graph_update_scale
-                actual_variance_graph_update_scale = Scale(actual_variance_graph_bottom_frame, from_=1, to=100,
-                                                           orient=HORIZONTAL,
-                                                           length=150, width=scale_width, bg="gray",
-                                                           font=(font, data_controls_font_size), showvalue=0)
-                actual_variance_graph_update_scale.set(5)
-                actual_variance_graph_update_scale.configure(state=DISABLED)
-                actual_variance_graph_update_label = tk.Label(actual_variance_graph_bottom_frame,
-                                                              text="Graph Update Interval:",
-                                                              font=(font, data_controls_font_size), bg="gray")
-
-                global graph_actual_variance
-                graph_actual_variance = False
-
-                def graph_actual_variance_button_clicked():
-                    global graph_actual_variance
-                    if graph_actual_variance:
-                        actual_variance_graph_top_frame.graph_actual_variance_button.config(highlightbackground="white",
-                                                                                            text="Off")
-                        graph_actual_variance = False
-                        actual_variance_graph_update_label.configure(bg="gray")
-                        actual_variance_graph_update_scale.configure(bg="gray")
-                        actual_variance_graph_update_scale.configure(state=DISABLED)
-                        actual_variance_graph_bottom_frame.configure(bg="gray")
-
-                    else:
-                        actual_variance_graph_top_frame.graph_actual_variance_button.config(highlightbackground="green",
-                                                                                            text="On")
-
-                        graph_actual_variance = True
-                        actual_variance_graph_update_label.configure(bg="white")
-                        actual_variance_graph_update_scale.configure(bg="white")
-                        actual_variance_graph_update_scale.configure(state=NORMAL)
-                        actual_variance_graph_bottom_frame.configure(bg="white")
-
-                actual_variance_graph_top_frame.graph_actual_variance_button = tk.Button(
-                    actual_variance_graph_top_frame, text="Off",
-                    highlightbackground="white",
-                    command=graph_actual_variance_button_clicked,
-                    font=(font, data_controls_font_size), width=20)
-
-                actual_variance_graph_label = tk.Label(actual_variance_graph_top_frame, text="Graph Actual Variance: ",
-                                                       font=(font, data_controls_font_size))
-                actual_variance_graph_label.pack(side=LEFT)
-                actual_variance_graph_top_frame.graph_actual_variance_button.pack(side=LEFT)
-                actual_variance_graph_top_frame.pack(side=TOP, anchor=NW)
-
-                actual_variance_graph_update_label.pack(side=LEFT)
-                actual_variance_graph_update_scale.pack(side=LEFT)
-                actual_variance_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
-
-            def create_download_field(data_frame):
-                download_field_frame = tk.Frame(data_frame)
-                CreateToolTip(download_field_frame,
-                              text="Download graph data from the last simulations (will not work while running)")
-                download_file_name = tk.StringVar()
-
-                def download_field_button_clicked():
-                    if len(self.simulations) != 0 and self.simulations[0].running == False:
-                        if download_file_name.get() != "":
-                            try:
-                                file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
-                            except FileExistsError:
-                                return
-                            file.write(download_file_name.get())
-                            i = 0
-                            for simulation in self.simulations:
-                                file.write("Simulation " + str(i) + "\n")
-                                file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
-                                file.write(
-                                    "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")
-                                if simulation.two_planet_start == True:
-                                    file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
-                                    file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
-                                i += 1
-
-                download_field_frame.download_fields_button = tk.Button(download_field_frame, text="Download",
-                                                                        highlightbackground="white",
-                                                                        command=download_field_button_clicked,
-                                                                        font=(
-                                                                            font, math.floor(data_controls_font_size)),
-                                                                        width=9, activebackground="gray")
-
-                download_field_entry = tk.Entry(download_field_frame, textvariable=download_file_name, width=25,
-                                                font=(font, data_controls_font_size))
-
-                download_field_label = tk.Label(download_field_frame, text="FileName: ",
-                                                font=(font, data_controls_font_size))
-                download_field_label.pack(side=LEFT)
-                download_field_entry.pack(side=LEFT)
-                download_field_frame.download_fields_button.pack(side=LEFT)
-                download_field_frame.pack(side=TOP, anchor=NW)
-
-            data_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=140,
-                                  highlightthickness=1)
-            data_frame.grid(row=5, column=0, pady=0, padx=4)
-            data_frame.pack_propagate(False)
-            data = tk.Label(data_frame, text="Data", font=(font, 15))
-            data.pack(side=TOP)
-
-            create_energy_graph_controls(data_frame)
-            create_actual_variance_graph_controls(data_frame)
-            create_download_field(data_frame)
-
-        # Creates the Widget for the starting button
-        def create_start_button(control_frame):
-
-            def start_button_clicked():
-                if len(self.simulations) == 0 or self.simulations[0].running == False:
-                    control_frame.start_button.config(highlightbackground="red", text="End Simulation")
-                    self.start_simulations(start_condition.get())
-                else:
-                    control_frame.start_button.config(highlightbackground="green", text="Start Simulation")
-                    self.end_simulations()
-
-            control_frame.start_button = tk.Button(control_frame, text="Start Simulation", highlightbackground="green",
-                                                   command=start_button_clicked, width=16, font=(font, 20))
-            control_frame.start_button.grid(row=6, column=0, pady=4, padx=4)
-
-        # Creates the Controls Title
-        control_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=800, highlightthickness=2)
-        control_frame.grid(row=1, column=0, rowspan=2, pady=8, padx=8)
-        control_frame.grid_propagate(False)
-        title = tk.Label(control_frame, text="Controls", font=(font, 25))
-        title.grid(row=0, column=0, pady=0, padx=4)
-
-        create_general_controls(control_frame)
-        create_draw_controls(control_frame)
-        create_starting_controls(control_frame)
-        create_data_controls(control_frame)
-        create_model_controls(control_frame)
-        create_start_button(control_frame)
-
-    # Creates the widget that contains the visuals
-    def create_canvas(self):
-        canvas_frame = tk.Frame(self.window, highlightbackground="black", width=800, height=800, highlightthickness=2)
-        canvas_frame.grid(row=1, column=1, rowspan=2, pady=8, padx=8)
-        global canvas
-        canvas = tk.Canvas(canvas_frame, width=800, height=800)
-        canvas.grid(row=0, column=0)
-        global drawn_objects
-        drawn_objects = []
-        return canvas
-
-    # Creates the widget that contains the graphs
-    def create_graphs(self):
-        graphs_font_size = 20
-        global energy_graph_frame
-        energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
-                                      highlightthickness=2)
-        energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
-        energy_graph_frame.grid_propagate(False)
-        energy_graph_label = tk.Label(energy_graph_frame, text="Energy at each Timestep",
-                                      font=(font, 25))
-        energy_graph_label.grid(row=0, column=0)
-
-        global actual_variance_graph_frame
-        actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
-                                               highlightthickness=2)
-        actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
-        actual_variance_graph_frame.grid_propagate(False)
-        actual_variance_graph_label = tk.Label(actual_variance_graph_frame, text="Model and Actual Difference",
-                                               font=(font, 25))
-        actual_variance_graph_label.grid(row=0, column=0)
+        create_title()
+        create_canvas()
+        create_controls()
+        create_graphs()
 
     # Handles the ending of all currently running simulations
     def end_simulations(self):
@@ -1244,7 +1274,7 @@ class UserInterface:
         simulation.run_simulation()
 
     # draws all the visuals for the passed simulation
-    def draw(simulation):
+    def draw(self, simulation):
         global canvas
         global window
         global drawn_objects
@@ -1253,7 +1283,6 @@ class UserInterface:
         global starting_path_button_on
         global zoom_scale
         global aparent_size_scale
-
         def get_scale(zoom_scale):
             return (10 ** (float(zoom_scale.get()) / 25)) / 100
 
@@ -1278,7 +1307,7 @@ class UserInterface:
                                                    scale * (ypos - aparent_size * planet.radius) + 400,
                                                    scale * (xpos + aparent_size * planet.radius) + 400,
                                                    scale * (ypos + aparent_size * planet.radius) + 400,
-                                                   start=0, extent=359, fill=planet.color, outline=""))
+                                                   start=0, extent=359.9, fill=planet.color, outline=""))
 
         # draws the center of mass
         def draw_com(com):
@@ -1295,7 +1324,7 @@ class UserInterface:
             drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
 
         # draws a single path
-        def draw_path(points, com, storage_array):
+        def draw_path(points, com, storage_array, color="black"):
             offset = [0, 0]
             if not com_button_on:
                 offset = com
@@ -1303,7 +1332,7 @@ class UserInterface:
                 storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
                                                         400 + scale * (offset[1] + points[i + 1]),
                                                         400 + scale * (offset[0] + points[i + 2]),
-                                                        400 + scale * (offset[1] + points[i + 3]), width=1))
+                                                        400 + scale * (offset[1] + points[i + 3]), width=1, fill=color))
 
         for o in drawn_objects:
             canvas.delete(o)
@@ -1318,17 +1347,18 @@ class UserInterface:
             draw_path(paths[1], com, drawn_objects)
         global screen_rules_updated
         if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+
             starting_paths = simulation.starting_paths
             for o in static_drawn_objects:
                 canvas.delete(o)
-            draw_path(starting_paths[0], com, static_drawn_objects)
-            draw_path(starting_paths[1], com, static_drawn_objects)
+            draw_path(starting_paths[0], com, static_drawn_objects, color = "red")
+            draw_path(starting_paths[1], com, static_drawn_objects, color = "red")
             screen_rules_updated = False
 
         canvas.update()
 
     # shows the graph of energy on the user interface
-    def plot_energy(plotted_times, k_energys, gp_energys):
+    def plot_energy(self, plotted_times, k_energys, gp_energys):
         x = plotted_times
         fig = Figure(figsize=(3.5, 3.5),
                      dpi=100)
@@ -1348,7 +1378,7 @@ class UserInterface:
         old_graphs = energy_graph_frame.winfo_children()
         fig.subplots_adjust(top=1.0,
                             bottom=0.28,
-                            left=0.2,
+                            left=0.25,
                             right=1.00,
                             hspace=0.01,
                             wspace=0.01)
@@ -1360,7 +1390,7 @@ class UserInterface:
             old_graphs[g].destroy()
 
     # shows the graph of variance on the user interface
-    def plot_variance(plotted_times, variances):
+    def plot_variance(self, plotted_times, variances):
         x = plotted_times
         fig = Figure(figsize=(3.5, 3.5),
                      dpi=100)

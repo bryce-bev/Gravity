@@ -241,7 +241,7 @@ class Planet:
 # SimulationInstance class, represents one instance of a simulation
 class SimulationInstance:
     def __init__(self, planets, model, user_interface):
-  star      self.user_interface = user_interface
+        self.user_interface = user_interface
         self.running = False
         self.current_time = 0
         self.planets = planets
@@ -1252,7 +1252,7 @@ class UserInterface:
                 angle = 2*math.pi*random.random()
                 speed = random.uniform(0, _starting_velocity)
                 vel = np.array([rot[0] + np.cos(angle)*speed,
-                                rot[1] + np.sin(angle)*speed])
+                                rot[1] + np.cos(angle)*speed])
                 radius = float(starting_radius.get())
                 mass = float(starting_mass.get())
                 p = Planet(pos, vel, mass, radius)

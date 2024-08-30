@@ -1252,7 +1252,7 @@ class UserInterface:
                 angle = 2*math.pi*random.random()
                 speed = random.uniform(0, _starting_velocity)
                 vel = np.array([rot[0] + np.cos(angle)*speed,
-                                rot[1] + np.cos(angle)*speed])
+                                rot[1] + np.sin(angle)*speed])
                 radius = float(starting_radius.get())
                 mass = float(starting_mass.get())
                 p = Planet(pos, vel, mass, radius)

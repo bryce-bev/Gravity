@@ -20,12 +20,12 @@ from matplotlib.figure import Figure
 # Global variables determining broad information
 G = 1
 font = "Times"
-canvas = ""
-models = ["Interval", "Dynamic Interval", "Velocity Average"]
+models = ["Interval", "Dynamic Interval", "Velocity Average", "Simultaneous Calculation"]
 model_descriptions = {
-    "Interval": "This is the basic model where every time step the gravitational attraction is calculated and the position updated",
+    "Interval": "This is the basic model where every time step the gravitational attraction is calculated and the position updated.",
     "Dynamic Interval": "In this model a body is updated in smaller time intervals when it is passing close to another body.",
-    "Velocity Average": "In this model instead of calculating the gravitational interaction at a single position.\nIt is calculated at the average position between current and next position."
+    "Velocity Average": "In this model instead of calculating the gravitational interaction at a single position.\nIt is calculated at the average position between current and next position.",
+    "Simultaneous Calculation": "This is mathmatically identical to interval, but calculates all interaction in the same step for better performance."
 }
 
 
@@ -52,13 +52,14 @@ def component_y(pos1, pos2):
 
 # handles a collision between 2 planet objects
 def collide(planets, p1, p2):
-    p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
-    p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
-    p1.mass += p2.mass
-    p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
-    planets.remove(p2)
+    if p1 in planets and p2 in planets:
+        p1.pos[0] = (p1.pos[0] * p1.mass + p2.pos[0] * p2.mass) / (p1.mass + p2.mass)
+        p1.pos[1] = (p1.pos[1] * p1.mass + p2.pos[1] * p2.mass) / (p1.mass + p2.mass)
+        p1.vel[0] = (p1.vel[0] * p1.mass + p2.vel[0] * p2.mass) / (p1.mass + p2.mass)
+        p1.vel[1] = (p1.vel[1] * p1.mass + p2.vel[1] * p2.mass) / (p1.mass + p2.mass)
+        p1.mass += p2.mass
+        p1.radius = ((p1.radius ** 3) + (p2.radius ** 3)) ** (1 / 3)
+        planets.remove(p2)
 
 
 # A tkinter scale object where the scale increases by different factors at differenct points
@@ -262,6 +263,7 @@ class SimulationInstance:
         self.variances_list = [[], []]
         self.number_planets = len(planets)
 
+
     # calculates the center of mass for the planet system
     def recalculate_com(self):
         self.com = np.array([0.0, 0.0])
@@ -273,16 +275,60 @@ class SimulationInstance:
 
     # updates all the planets through one timestep
     def update(self):
-        p = self.planet_queue.get()
-        while p.next_update < self.current_time + 1:
-            if p in self.planets:
-                # timestep = p.next_update - current_time
-                # current_time = p.next_update
-                p.update_planet(self.planets, self.model)
-                self.recalculate_com()
-                self.planet_queue.put(p)
+        if self.model == "Simultaneous Calculation":
+            position_list = []
+            velocity_list = []
+            masses_list = []
+            radius_list = []
+            for p in self.planets:
+                position_list.append(p.pos)
+                velocity_list.append(p.vel)
+                masses_list.append(p.mass)
+                radius_list.append(p.radius)
+            position_array = np.array(position_list)
+            mass_array = np.array(masses_list)
+            velocity_array = np.array(velocity_list)
+            radius_array =  np.array(radius_list)
+            horizontal_position_array = position_array.reshape((len(self.planets), 1, 2))
+            verticle_position_array = position_array.reshape((1, len(self.planets), 2))
+            distance_vectors = -1*(horizontal_position_array - verticle_position_array)
+            distances = np.sqrt(np.sum(np.square(distance_vectors),axis=2)).reshape((len(self.planets), len(self.planets), 1))
+            collision_distances = np.add(radius_array.reshape((len(self.planets), 1)), radius_array.reshape((1, len(self.planets))))
+            _distances = np.reshape(distances,(len(self.planets),(len(self.planets))))
+            collision = np.greater(collision_distances, _distances, out =np.full((len(self.planets), len(self.planets)), False),  where=_distances!=0)
+            colliding_indeces = np.where(np.any(collision, axis=1))[0]
+            a = distance_vectors*mass_array.reshape((1, len(self.planets), 1))
+            b = np.power(distances,3)
+            accelerations = np.divide(a, b, out=np.zeros_like(a), where=b!=0)
+            accelerations = np.sum(accelerations,axis = 1)
+            velocity_array += accelerations
+            position_array += velocity_array
+            for i in range(len(self.planets)):
+                self.planets[i].pos = position_array[i]
+                self.planets[i].vel = velocity_array[i]
+            planets_to_collide = []
+            for i in colliding_indeces:
+                for j in range(i, len(collision[i])):
+                    if collision[i][j]:
+                        planets_to_collide.append([self.planets[i],self.planets[j]])
+            for p in planets_to_collide:
+                global collisions
+                if collisions:
+                    collide(self.planets, p[0], p[1])
+            self.recalculate_com()
+
+
+        else:
             p = self.planet_queue.get()
-        self.planet_queue.put(p)
+            while p.next_update < self.current_time + 1:
+                if p in self.planets:
+                    # timestep = p.next_update - current_time
+                    # current_time = p.next_update
+                    p.update_planet(self.planets, self.model)
+                    self.recalculate_com()
+                    self.planet_queue.put(p)
+                p = self.planet_queue.get()
+            self.planet_queue.put(p)
         self.current_time += 1
         self.times_list.append(self.current_time)
 
@@ -419,28 +465,22 @@ class SimulationInstance:
 
     # method that handles setting up and running the simulation
     def run_simulation(self):
-        global graph_energy
-        global graph_actual_variance
-        global energy_graph_update_scale
-        global actual_variance_graph_update_scale
-        global starting_paths
-        global timestep_length_scale
         self.running = True
         while self.running:
             self.record_energys()
             self.record_variance()
             if self.user_interface.draw_visuals:
-                if graph_energy and self.current_time % (energy_graph_update_scale.get()) == 0:
+                if self.user_interface.graph_energy and self.current_time % (self.user_interface.graph_update_scale.get()) == 0:
                     self.user_interface.plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
-                if graph_actual_variance and self.current_time % (
-                        actual_variance_graph_update_scale.get()) == 0 and self.two_planet_start:
+                if self.user_interface.graph_actual_variance and self.current_time % (
+                        self.user_interface.graph_update_scale.get()) == 0 and self.two_planet_start:
                     self.user_interface.plot_variance(self.times_list, self.variances_list)
                 self.user_interface.draw(self)
             self.update()
             if self.end_condition_met():
-                break
+                self.running = False
             if self.user_interface.draw_visuals:
-                time.sleep(timestep_length_scale.get())
+                time.sleep(self.user_interface.timestep_length_scale.get())
 
 
 # UserInterface class, handles all the user inputs and keeps track of the simulations that are running
@@ -450,7 +490,7 @@ class UserInterface:
         self.window.geometry("1600x900")
         self.window.configure(background="lightblue")
         self.simulations = []
-
+        self.simulations_running = False
 
         self.create()
         self.window.mainloop()
@@ -477,8 +517,7 @@ class UserInterface:
             # it updates the screen rules updated variable,.
             # room to expand it if other requirements for updating the screen rules appear
             def _screen_rules_updated(*args):
-                global screen_rules_updated
-                screen_rules_updated = True
+                self.screen_rules_updated = True
 
             # Creates the Widget for the general controls
             def create_general_controls(control_frame):
@@ -489,24 +528,23 @@ class UserInterface:
                     draw_visuals_frame = tk.Frame(draw_control_frame)
 
                     def draw_visuals_button_clicked():
-                        if len(self.simulations) != 0 and self.simulations[0].running:
+                        if len(self.simulations) != 0 and self.simulations_running:
                             return
-                        global canvas
                         if self.draw_visuals:
                             draw_visuals_frame.draw_visuals_button.config(highlightbackground="red",
                                                                           text="Not Showing Simulation")
                             self.draw_visuals = False
                             self.draw_control_frame.destroy()
                             create_multiple_simulation_controls(control_frame)
-                            canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
-                            canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
+                            self.canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
+                            self.canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
                         else:
                             draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
                                                                           text="Showing Simulation")
                             self.draw_visuals = True
                             self.multiple_simulation_control_frame.destroy()
                             create_draw_controls(control_frame)
-                            canvas.delete("all")
+                            self.canvas.delete("all")
 
                     draw_visuals_frame.draw_visuals_button = tk.Button(draw_visuals_frame, text="Showing Simulation",
                                                                        highlightbackground="green",
@@ -526,7 +564,6 @@ class UserInterface:
 
                     def collisions_button_clicked():
                         global collisions
-                        global canvas
                         if collisions:
                             collisions_frame.collisions_button.config(highlightbackground="red", text="Off")
                             collisions = False
@@ -546,16 +583,15 @@ class UserInterface:
                     collisions_frame.pack(side=TOP, anchor=NW)
 
                 def create_timestep_length(general_frame):
-                    global timestep_length_scale
                     timestep_length_frame = tk.Frame(general_frame)
-                    timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL,
+                    self.timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL,
                                                      length=150, width=scale_width,
                                                      font=(font, general_font_size), resolution=1)
-                    timestep_length_scale.set(-2)
+                    self.timestep_length_scale.set(-2)
                     timestep_length_label = tk.Label(timestep_length_frame, text="Timestep Length:",
                                                      font=(font, general_font_size))
                     timestep_length_label.pack(side=LEFT)
-                    timestep_length_scale.pack(side=LEFT)
+                    self.timestep_length_scale.pack(side=LEFT)
                     timestep_length_frame.pack(side=TOP, anchor=NW)
 
                 general_frame = tk.Frame(control_frame, highlightbackground="black", width=354, height=100,
@@ -639,20 +675,21 @@ class UserInterface:
                 draw_controls_font_size = controls_font_size
 
                 def create_com_button(draw_control_frame):
-                    global com_button_on
-                    com_button_on = True
+                    self.center = "com"
 
                     def start_button_clicked():
-                        global com_button_on
-                        _screen_rules_updated()
-                        if com_button_on:
+                        if self.center == "com":
                             com_frame.com_button.config(highlightbackground="white", text="Tracking (0,0)")
-                            com_button_on = False
-                            screen_rules_updated()
-                        else:
-                            com_frame.com_button.config(highlightbackground="green", text="Tracking Center Of Mass")
-                            com_button_on = True
-                            screen_rules_updated()
+                            self.center = "00"
+                            _screen_rules_updated()
+                        elif self.center == "00":
+                            com_frame.com_button.config(highlightbackground="green", text="Tracking Largest Object")
+                            self.center = "largest"
+                            _screen_rules_updated()
+                        elif self.center == "largest":
+                            com_frame.com_button.config(highlightbackground="red", text="Tracking Center Of Mass")
+                            self.center = "com"
+                            _screen_rules_updated()
 
                     com_frame = tk.Frame(draw_control_frame)
                     com_frame.com_button = tk.Button(com_frame, text="Tracking Center Of Mass",
@@ -666,51 +703,46 @@ class UserInterface:
                     com_frame.pack(side=TOP, anchor=NW)
 
                 def create_zoom(draw_control_frame):
-                    global zoom_scale
                     zoom_frame = tk.Frame(draw_control_frame)
-                    zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
+                    self.zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
                                        font=(font, draw_controls_font_size), showvalue=0, command=_screen_rules_updated)
-                    zoom_scale.set(50)
+                    self.zoom_scale.set(50)
                     zoom_label = tk.Label(zoom_frame, text="Zoom:",
                                           font=(font, draw_controls_font_size))
                     zoom_label.pack(side=LEFT)
-                    zoom_scale.pack(side=LEFT)
+                    self.zoom_scale.pack(side=LEFT)
                     zoom_frame.pack(side=TOP, anchor=NW)
 
                     def on_mousewheel(event):
                         if self.draw_visuals:
-                            zoom = zoom_scale.get()
+                            zoom = self.zoom_scale.get()
                             zoom += event.delta
-                            zoom_scale.set(zoom)
+                            self.zoom_scale.set(zoom)
 
-                    global canvas
-                    canvas.bind_all("<MouseWheel>", on_mousewheel)
+                    self.canvas.bind_all("<MouseWheel>", on_mousewheel)
 
                 def create_aparent_size(draw_control_frame):
-                    global aparent_size_scale
                     aparent_size_frame = tk.Frame(draw_control_frame)
-                    aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
+                    self.aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
                                                length=150, width=scale_width, font=(font, draw_controls_font_size),
                                                showvalue=0, command=_screen_rules_updated)
-                    aparent_size_scale.set(50)
+                    self.aparent_size_scale.set(50)
                     aparent_size_label = tk.Label(aparent_size_frame, text="Aparent Size of Bodies:",
                                                   font=(font, draw_controls_font_size))
                     aparent_size_label.pack(side=LEFT)
-                    aparent_size_scale.pack(side=LEFT)
+                    self.aparent_size_scale.pack(side=LEFT)
                     aparent_size_frame.pack(side=TOP, anchor=NW)
 
                 def create_path_button(draw_control_frame):
-                    global path_button_on
-                    path_button_on = False
+                    self.path_button_on = False
 
                     def start_button_clicked():
-                        global path_button_on
-                        if path_button_on:
+                        if self.path_button_on:
                             path_frame.path_button.config(highlightbackground="white", text="Not Showing Paths")
-                            path_button_on = False
+                            self.path_button_on = False
                         else:
                             path_frame.path_button.config(highlightbackground="green", text="Showing Paths")
-                            path_button_on = True
+                            self.path_button_on = True
 
                     path_frame = tk.Frame(draw_control_frame)
                     path_frame.path_button = tk.Button(path_frame, text="Not Showing Paths",
@@ -726,20 +758,18 @@ class UserInterface:
                     path_frame.pack(side=TOP, anchor=NW)
 
                 def create_starting_path_button(draw_control_frame):
-                    global starting_path_button_on
-                    starting_path_button_on = False
+                    self.starting_path_button_on = False
 
                     def start_button_clicked():
-                        global starting_path_button_on
                         _screen_rules_updated()
-                        if starting_path_button_on:
+                        if self.starting_path_button_on:
                             starting_path_frame.starting_path_button.config(highlightbackground="white",
                                                                             text="Not Showing Starting Paths")
-                            starting_path_button_on = False
+                            self.starting_path_button_on = False
                         else:
                             starting_path_frame.starting_path_button.config(highlightbackground="green",
                                                                             text="Showing Starting Paths")
-                            starting_path_button_on = True
+                            self.starting_path_button_on = True
 
                     starting_path_frame = tk.Frame(draw_control_frame)
                     starting_path_frame.starting_path_button = tk.Button(starting_path_frame,
@@ -787,15 +817,14 @@ class UserInterface:
                     preset_frame.pack(side=TOP, anchor=NW)
 
                 def create_number_bodies(starting_frame):
-                    global number_bodies_scale
                     number_bodies_frame = tk.Frame(starting_frame)
-                    number_bodies_scale = NonLinearScale(number_bodies_frame, from_=2, to=95, orient=HORIZONTAL,
-                                                         length=150,
+                    self.number_bodies_scale = NonLinearScale(number_bodies_frame, from_=2, to=150, orient=HORIZONTAL,
+                                                         length=200,
                                                          width=scale_width, font=(font, starting_controls_font_size))
                     number_bodies_label = tk.Label(number_bodies_frame, text="Number of Bodies: ",
                                                    font=(font, starting_controls_font_size))
                     number_bodies_label.pack(side=LEFT)
-                    number_bodies_scale.pack(side=LEFT)
+                    self.number_bodies_scale.pack(side=LEFT)
                     number_bodies_frame.pack(side=TOP, anchor=NW)
 
                 def create_distribution_area(starting_frame):
@@ -803,7 +832,6 @@ class UserInterface:
                                                        font=(font, starting_controls_font_size))
                     distribution_area_label.pack(side=TOP, anchor=NW)
                     distribution_area_frame = tk.Frame(starting_frame)
-                    global distribution_area
                     x_min = tk.StringVar()
                     x_max = tk.StringVar()
                     y_min = tk.StringVar()
@@ -812,7 +840,7 @@ class UserInterface:
                     y_min.set("-200")
                     x_max.set("200")
                     y_max.set("200")
-                    distribution_area = [x_min, x_max, y_min, y_max]
+                    self.distribution_area = [x_min, x_max, y_min, y_max]
                     x_min_entry = tk.Entry(distribution_area_frame, textvariable=x_min, width=3,
                                            font=(font, starting_controls_font_size))
                     x_max_entry = tk.Entry(distribution_area_frame, textvariable=x_max, width=3,
@@ -842,10 +870,9 @@ class UserInterface:
 
                 def create_mass_entry(starting_frame):
                     mass_entry_frame = tk.Frame(starting_frame)
-                    global starting_mass
-                    starting_mass = tk.StringVar()
-                    starting_mass.set("100")
-                    starting_mass_entry = tk.Entry(mass_entry_frame, textvariable=starting_mass, width=3,
+                    self.starting_mass = tk.StringVar()
+                    self.starting_mass.set("100")
+                    starting_mass_entry = tk.Entry(mass_entry_frame, textvariable=self.starting_mass, width=3,
                                                    font=(font, starting_controls_font_size))
                     starting_mass_label = tk.Label(mass_entry_frame, text="Starting Mass of Bodies:",
                                                    font=(font, starting_controls_font_size))
@@ -855,10 +882,9 @@ class UserInterface:
 
                 def create_radius_entry(starting_frame):
                     radius_entry_frame = tk.Frame(starting_frame)
-                    global starting_radius
-                    starting_radius = tk.StringVar()
-                    starting_radius.set("10")
-                    starting_radius_entry = tk.Entry(radius_entry_frame, textvariable=starting_radius, width=3,
+                    self.starting_radius = tk.StringVar()
+                    self.starting_radius.set("10")
+                    starting_radius_entry = tk.Entry(radius_entry_frame, textvariable=self.starting_radius, width=3,
                                                      font=(font, starting_controls_font_size))
                     starting_radius_label = tk.Label(radius_entry_frame, text="Starting Radius of Bodies:",
                                                      font=(font, starting_controls_font_size))
@@ -868,10 +894,9 @@ class UserInterface:
 
                 def create_velocity_entry(starting_frame):
                     velocity_entry_frame = tk.Frame(starting_frame)
-                    global starting_velocity
-                    starting_velocity = tk.StringVar()
-                    starting_velocity.set("1")
-                    starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=starting_velocity, width=3,
+                    self.starting_velocity = tk.StringVar()
+                    self.starting_velocity.set("1")
+                    starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=self.starting_velocity, width=3,
                                                        font=(font, starting_controls_font_size))
                     starting_velocity_label = tk.Label(velocity_entry_frame,
                                                        text="Average Starting Velocity of Bodies:",
@@ -882,10 +907,9 @@ class UserInterface:
 
                 def create_rotation_entry(starting_frame):
                     rotation_entry_frame = tk.Frame(starting_frame)
-                    global starting_rotation
-                    starting_rotation = tk.StringVar()
-                    starting_rotation.set("0")
-                    starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=starting_rotation, width=3,
+                    self.starting_rotation = tk.StringVar()
+                    self.starting_rotation.set("0")
+                    starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=self.starting_rotation, width=3,
                                                        font=(font, starting_controls_font_size))
                     starting_rotation_label = tk.Label(rotation_entry_frame,
                                                        text="Average Starting Rotation of Bodies:",
@@ -916,7 +940,6 @@ class UserInterface:
                 model_specific_widgets = []
 
                 def create_model_menu(model_frame):
-                    global selected_model
                     global model_descriptions
                     global models
                     model_description = StringVar()
@@ -924,18 +947,18 @@ class UserInterface:
                     def selected_model_change(*args):
                         for w in model_specific_widgets:
                             w.destroy()
-                        if selected_model.get() == "Dynamic Interval":
+                        if self.selected_model.get() == "Dynamic Interval":
                             create_dynamic_interval_model_menu(model_frame)
-                        model_description.set(model_descriptions[selected_model.get()])
+                        model_description.set(model_descriptions[self.selected_model.get()])
 
-                    selected_model = StringVar()
-                    selected_model.trace("w", selected_model_change)
+                    self.selected_model = StringVar()
+                    self.selected_model.trace("w", selected_model_change)
                     options = models
                     # initial menu text
-                    selected_model.set(options[0])
+                    self.selected_model.set(options[0])
                     # Create Dropdown menu
                     model_menu_frame = tk.Frame(model_frame)
-                    model_menu_dropdown = OptionMenu(model_menu_frame, selected_model, *options)
+                    model_menu_dropdown = OptionMenu(model_menu_frame, self.selected_model, *options)
                     CreateToolTip(model_menu_dropdown, text=model_description)
                     model_menu_label = tk.Label(model_menu_frame, text="Models: ",
                                                 font=(font, model_controls_font_size))
@@ -976,39 +999,18 @@ class UserInterface:
 
                 def create_energy_graph_controls(data_frame):
                     energy_graph_top_frame = tk.Frame(data_frame)
-                    energy_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
-                    global energy_graph_update_scale
-                    energy_graph_update_scale = Scale(energy_graph_bottom_frame, from_=1, to=200, orient=HORIZONTAL,
-                                                      length=150, width=scale_width, bg="gray",
-                                                      font=(font, data_controls_font_size), showvalue=0)
-                    energy_graph_update_scale.set(100)
-                    energy_graph_update_scale.configure(state=DISABLED)
-                    energy_graph_update_label = tk.Label(energy_graph_bottom_frame, text="Graph Update Interval:",
-                                                         font=(font, data_controls_font_size), bg="gray")
-
-                    global graph_energy
-                    graph_energy = False
+                    self.graph_energy = False
 
                     def graph_energy_button_clicked():
-                        global graph_energy
-                        if graph_energy:
+                        if self.graph_energy:
                             energy_graph_top_frame.graph_energy_button.config(highlightbackground="white",
                                                                               text="Off")
-                            graph_energy = False
-                            energy_graph_update_label.configure(bg="gray")
-                            energy_graph_update_scale.configure(bg="gray")
-                            energy_graph_update_scale.configure(state=DISABLED)
-                            energy_graph_bottom_frame.configure(bg="gray")
+                            self.graph_energy = False
 
                         else:
                             energy_graph_top_frame.graph_energy_button.config(highlightbackground="green",
                                                                               text="On")
-
-                            graph_energy = True
-                            energy_graph_update_label.configure(bg="white")
-                            energy_graph_update_scale.configure(bg="white")
-                            energy_graph_update_scale.configure(state=NORMAL)
-                            energy_graph_bottom_frame.configure(bg="white")
+                            self.graph_energy = True
 
                     energy_graph_top_frame.graph_energy_button = tk.Button(energy_graph_top_frame, text="Off",
                                                                            highlightbackground="white",
@@ -1022,49 +1024,24 @@ class UserInterface:
                     energy_graph_top_frame.graph_energy_button.pack(side=LEFT)
                     energy_graph_top_frame.pack(side=TOP, anchor=NW)
 
-                    energy_graph_update_label.pack(side=LEFT)
-                    energy_graph_update_scale.pack(side=LEFT)
-                    energy_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
 
                 def create_actual_variance_graph_controls(data_frame):
                     actual_variance_graph_top_frame = tk.Frame(data_frame)
-                    actual_variance_graph_bottom_frame = tk.Frame(data_frame, bg="gray")
-                    global actual_variance_graph_update_scale
-                    actual_variance_graph_update_scale = Scale(actual_variance_graph_bottom_frame, from_=1, to=200,
-                                                               orient=HORIZONTAL,
-                                                               length=150, width=scale_width, bg="gray",
-                                                               font=(font, data_controls_font_size), showvalue=0)
-                    actual_variance_graph_update_scale.set(100)
-                    actual_variance_graph_update_scale.configure(state=DISABLED)
-                    actual_variance_graph_update_label = tk.Label(actual_variance_graph_bottom_frame,
-                                                                  text="Graph Update Interval:",
-                                                                  font=(font, data_controls_font_size), bg="gray")
-
-                    global graph_actual_variance
-                    graph_actual_variance = False
+                    self.graph_actual_variance = False
 
                     def graph_actual_variance_button_clicked():
-                        global graph_actual_variance
-                        if graph_actual_variance:
+                        if self.graph_actual_variance:
                             actual_variance_graph_top_frame.graph_actual_variance_button.config(
                                 highlightbackground="white",
                                 text="Off")
-                            graph_actual_variance = False
-                            actual_variance_graph_update_label.configure(bg="gray")
-                            actual_variance_graph_update_scale.configure(bg="gray")
-                            actual_variance_graph_update_scale.configure(state=DISABLED)
-                            actual_variance_graph_bottom_frame.configure(bg="gray")
+                            self.graph_actual_variance = False
 
                         else:
                             actual_variance_graph_top_frame.graph_actual_variance_button.config(
                                 highlightbackground="green",
                                 text="On")
 
-                            graph_actual_variance = True
-                            actual_variance_graph_update_label.configure(bg="white")
-                            actual_variance_graph_update_scale.configure(bg="white")
-                            actual_variance_graph_update_scale.configure(state=NORMAL)
-                            actual_variance_graph_bottom_frame.configure(bg="white")
+                            self.graph_actual_variance = True
 
                     actual_variance_graph_top_frame.graph_actual_variance_button = tk.Button(
                         actual_variance_graph_top_frame, text="Off",
@@ -1079,9 +1056,52 @@ class UserInterface:
                     actual_variance_graph_top_frame.graph_actual_variance_button.pack(side=LEFT)
                     actual_variance_graph_top_frame.pack(side=TOP, anchor=NW)
 
-                    actual_variance_graph_update_label.pack(side=LEFT)
-                    actual_variance_graph_update_scale.pack(side=LEFT)
-                    actual_variance_graph_bottom_frame.pack(side=TOP, anchor=NW, fill=X)
+
+
+                def create_graph_update_controls(data_frame):
+                    graph_update_frame = tk.Frame(data_frame, bg="white")
+                    self.graph_update_scale = Scale(graph_update_frame, from_=1, to=200,
+                                                    orient=HORIZONTAL,
+                                                    length=150, width=scale_width, bg="white",
+                                                    font=(font, data_controls_font_size), showvalue=0)
+                    self.graph_update_scale.set(100)
+                    graph_update_label = tk.Label(graph_update_frame,
+                                                                  text="Graph Update Interval:",
+                                                                  font=(font, data_controls_font_size), bg="white")
+                    graph_update_label.pack(side=LEFT)
+                    self.graph_update_scale.pack(side=LEFT)
+                    graph_update_frame.pack(side=TOP, anchor=NW, fill=X)
+
+                def create_graph_x_axis_controls(data_frame):
+                    graph_x_axis_frame = tk.Frame(data_frame, bg="white")
+                    def graph_x_axis_button_clicked():
+                        if not self.simulations_running:
+                            if self.graph_x_axis == "actual_time":
+                                graph_x_axis_frame.graph_x_axis_button.config(
+                                    highlightbackground="white",
+                                    text="Timestep")
+                                self.graph_x_axis = "timestep"
+
+                            elif self.graph_x_axis == "timestep":
+                                graph_x_axis_frame.graph_x_axis_button.config(
+                                    highlightbackground="green",
+                                    text="Runtime")
+
+                                self.graph_x_axis = "actual_time"
+
+                    self.graph_x_axis = "timestep"
+                    graph_x_axis_frame.graph_x_axis_button = tk.Button(
+                        graph_x_axis_frame, text="Timestep",
+                        highlightbackground="white",
+                        command=graph_x_axis_button_clicked,
+                        font=(font, data_controls_font_size), width=20)
+
+                    actual_variance_graph_label = tk.Label(graph_x_axis_frame,
+                                                           text="X Axis Variable for Graphs: ",
+                                                           font=(font, data_controls_font_size))
+                    actual_variance_graph_label.pack(side=LEFT)
+                    graph_x_axis_frame.graph_x_axis_button.pack(side=LEFT)
+                    graph_x_axis_frame.pack(side=TOP, anchor=NW, fill=X)
 
                 def create_download_field(data_frame):
                     download_field_frame = tk.Frame(data_frame)
@@ -1090,7 +1110,7 @@ class UserInterface:
                     download_file_name = tk.StringVar()
 
                     def download_field_button_clicked():
-                        if len(self.simulations) != 0 and self.simulations[0].running == False:
+                        if not self.simulations_running:
                             if download_file_name.get() != "":
                                 try:
                                     file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
@@ -1136,13 +1156,16 @@ class UserInterface:
 
                 create_energy_graph_controls(data_frame)
                 create_actual_variance_graph_controls(data_frame)
+                create_graph_update_controls(data_frame)
+                create_graph_x_axis_controls(data_frame)
                 create_download_field(data_frame)
+
 
             # Creates the Widget for the starting button
             def create_start_button(control_frame):
 
                 def start_button_clicked():
-                    if len(self.simulations) == 0 or self.simulations[0].running == False:
+                    if not self.simulations_running:
                         control_frame.start_button.config(highlightbackground="red", text="End Simulation")
                         self.start_simulations(start_condition.get())
                     else:
@@ -1174,31 +1197,25 @@ class UserInterface:
             canvas_frame = tk.Frame(self.window, highlightbackground="black", width=800, height=800,
                                     highlightthickness=2)
             canvas_frame.grid(row=1, column=1, rowspan=2, pady=8, padx=8)
-            global canvas
-            canvas = tk.Canvas(canvas_frame, width=800, height=800)
-            canvas.grid(row=0, column=0)
-            global drawn_objects
-            drawn_objects = []
-            return canvas
+            self.canvas = tk.Canvas(canvas_frame, width=800, height=800)
+            self.canvas.grid(row=0, column=0)
+            self.drawn_objects = []
 
         # Creates the widget that contains the graphs
         def create_graphs():
             graphs_font_size = 20
-            global energy_graph_frame
-            energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
+            self.energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
                                           highlightthickness=2)
-            energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
-            energy_graph_frame.grid_propagate(False)
-            energy_graph_label = tk.Label(energy_graph_frame, text="Energy at each Timestep",
+            self.energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
+            self.energy_graph_frame.grid_propagate(False)
+            energy_graph_label = tk.Label(self.energy_graph_frame, text="Energy at each Timestep",
                                           font=(font, 25))
             energy_graph_label.grid(row=0, column=0)
-
-            global actual_variance_graph_frame
-            actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
+            self.actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
                                                    highlightthickness=2)
-            actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
-            actual_variance_graph_frame.grid_propagate(False)
-            actual_variance_graph_label = tk.Label(actual_variance_graph_frame, text="Model and Actual Difference",
+            self.actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
+            self.actual_variance_graph_frame.grid_propagate(False)
+            actual_variance_graph_label = tk.Label(self.actual_variance_graph_frame, text="Model and Actual Difference",
                                                    font=(font, 25))
             actual_variance_graph_label.grid(row=0, column=0)
 
@@ -1211,9 +1228,15 @@ class UserInterface:
     def end_simulations(self):
         for simulation in self.simulations:
             simulation.running = False
+        print("simulations ended")
+
+        self.simulations_running = False
+        print("simulations ended")
 
     # Uses the user inputs to start on or multiple simulations
     def start_simulations(self, start_condition):
+        self.simulations_running = True
+        print("start")
         self.simulations = []
         if self.draw_visuals:
             self.start_simulation(start_condition)
@@ -1222,39 +1245,32 @@ class UserInterface:
             number_simulations = int(self.number_simulations_scale.get())
             for i in range(number_simulations):
                 self.start_simulation(start_condition)
+        self.simulations_running = False
+        print("done")
 
     # Starts a single simulation
     def start_simulation(self, start_condition):
         planets = []
-        global canvas
-        canvas.delete("all")
+        self.canvas.delete("all")
         global planet_number
         planet_number = 0
-        global static_drawn_objects
-        static_drawn_objects = []
-        global screen_rules_updated
-        screen_rules_updated = True
+        self.static_drawn_objects = []
+        self.screen_rules_updated = True
         if start_condition == "No Preset":
             planets = []
-            global number_bodies_scale
-            global distribution_area
-            global starting_mass
-            global starting_radius
-            global starting_velocity
-            global starting_rotation
-            for i in range(0, int(number_bodies_scale.value)):
-                pos = np.array([random.uniform(float(distribution_area[0].get()), float(distribution_area[1].get())),
-                                random.uniform(float(distribution_area[2].get()), float(distribution_area[3].get()))])
-                _starting_velocity = float(starting_velocity.get())
+            for i in range(0, int(self.number_bodies_scale.value)):
+                pos = np.array([random.uniform(float(self.distribution_area[0].get()), float(self.distribution_area[1].get())),
+                                random.uniform(float(self.distribution_area[2].get()), float(self.distribution_area[3].get()))])
+                _starting_velocity = float(self.starting_velocity.get())
                 distance = dist([0, 0], pos)
-                rot = [-1 * random.uniform(0,float(starting_rotation.get())) * pos[1] / distance,
-                       random.uniform(0,float(starting_rotation.get())) * pos[0] / distance]
+                rot = [-1 * random.uniform(0,float(self.starting_rotation.get())) * pos[1] / distance,
+                       random.uniform(0,float(self.starting_rotation.get())) * pos[0] / distance]
                 angle = 2*math.pi*random.random()
                 speed = random.uniform(0, _starting_velocity)
                 vel = np.array([rot[0] + np.cos(angle)*speed,
                                 rot[1] + np.sin(angle)*speed])
-                radius = float(starting_radius.get())
-                mass = float(starting_mass.get())
+                radius = float(self.starting_radius.get())
+                mass = float(self.starting_mass.get())
                 p = Planet(pos, vel, mass, radius)
                 planets.append(p)
         else:
@@ -1270,42 +1286,41 @@ class UserInterface:
                 color = planet_info[5][6:]
                 p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
                 planets.append(p)
-        global selected_model
-        simulation = SimulationInstance(planets, selected_model.get(), self)
+        simulation = SimulationInstance(planets, self.selected_model.get(), self)
         self.simulations.append(simulation)
         simulation.run_simulation()
 
     # draws all the visuals for the passed simulation
     def draw(self, simulation):
-        global canvas
         global window
-        global drawn_objects
-        global static_drawn_objects
-        global path_button_on
-        global starting_path_button_on
-        global zoom_scale
-        global aparent_size_scale
-        def get_scale(zoom_scale):
+        def get_scale( zoom_scale ):
             return (10 ** (float(zoom_scale.get()) / 25)) / 100
 
-        scale = get_scale(zoom_scale)
-        aparent_size = get_scale(aparent_size_scale)
+        scale = get_scale(self.zoom_scale)
+        aparent_size = get_scale(self.aparent_size_scale)
         planets = simulation.planets
         com = simulation.com
+        offset = [0,0]
+        if self.center == "com":
+            offset = com
+        elif self.center == "largest":
+            max_mass = 0
+            for p in self.simulations[0].planets:
+                if p.mass > max_mass:
+                    max_mass = p.mass
+                    offset = p.pos
+
+
 
         # draws one planet
         def drawPlanet(planet, com):
-            global canvas
 
-            x_offset = 0
-            y_offset = 0
-            if com_button_on:
-                x_offset = 1 * com[0]
-                y_offset = 1 * com[1]
+            x_offset = offset[0]
+            y_offset = offset[1]
 
             xpos = planet.pos[0] - x_offset
             ypos = planet.pos[1] - y_offset
-            drawn_objects.append(canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
+            self.drawn_objects.append(self.canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
                                                    scale * (ypos - aparent_size * planet.radius) + 400,
                                                    scale * (xpos + aparent_size * planet.radius) + 400,
                                                    scale * (ypos + aparent_size * planet.radius) + 400,
@@ -1314,50 +1329,42 @@ class UserInterface:
         # draws the center of mass
         def draw_com(com):
             x = 0
-            _com = [400, 400]
-            global drawn_objects
-            if not com_button_on:
-                _com[0] = (scale * com[0]) + 400
-                _com[1] = (scale * com[1]) + 400
-            drawn_objects.append(canvas.create_arc(_com[0] - 2, _com[1] - 2,
+            _com = [ 400 + scale*(com[0] - offset[0]), 400 + scale*(com[1] - scale*offset[1])]
+            self.drawn_objects.append(self.canvas.create_arc(_com[0] - 2, _com[1] - 2,
                                                    _com[0] + 2, _com[1] + 2,
                                                    start=0, extent=359, outline="", fill="red"))
-            drawn_objects.append(canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
-            drawn_objects.append(canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
+            self.drawn_objects.append(self.canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
+            self.drawn_objects.append(self.canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
 
         # draws a single path
         def draw_path(points, com, storage_array, color="black"):
-            offset = [0, 0]
-            if not com_button_on:
-                offset = com
             for i in range(0, len(points) - 2, 2):
-                storage_array.append(canvas.create_line(400 + scale * (offset[0] + points[i]),
-                                                        400 + scale * (offset[1] + points[i + 1]),
-                                                        400 + scale * (offset[0] + points[i + 2]),
-                                                        400 + scale * (offset[1] + points[i + 3]), width=1, fill=color))
+                storage_array.append(self.canvas.create_line(400 + scale * (com[0] - offset[0] + points[i]),
+                                                        400 + scale * (com[1] - offset[1] + points[i + 1]),
+                                                        400 + scale * (com[0] - offset[0] + points[i + 2]),
+                                                        400 + scale * (com[1] - offset[1] + points[i + 3]), width=1, fill=color))
 
-        for o in drawn_objects:
-            canvas.delete(o)
-        drawn_objects = []
+        for o in self.drawn_objects:
+            self.canvas.delete(o)
+        self.drawn_objects = []
 
         for planet in planets:
             drawPlanet(planet, com)
         draw_com(com)
-        if path_button_on and len(planets) == 2:
+        if self.path_button_on and len(planets) == 2:
             paths = simulation.calculate_actual_paths()
-            draw_path(paths[0], com, drawn_objects)
-            draw_path(paths[1], com, drawn_objects)
-        global screen_rules_updated
-        if screen_rules_updated and starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+            draw_path(paths[0], com, self.drawn_objects)
+            draw_path(paths[1], com, self.drawn_objects)
+        if (self.screen_rules_updated or self.center != "com") and self.starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
 
             starting_paths = simulation.starting_paths
-            for o in static_drawn_objects:
-                canvas.delete(o)
-            draw_path(starting_paths[0], com, static_drawn_objects, color = "red")
-            draw_path(starting_paths[1], com, static_drawn_objects, color = "red")
-            screen_rules_updated = False
+            for o in self.static_drawn_objects:
+                self.canvas.delete(o)
+            draw_path(starting_paths[0], com, self.static_drawn_objects, color = "red")
+            draw_path(starting_paths[1], com, self.static_drawn_objects, color = "red")
+            self.screen_rules_updated = False
 
-        canvas.update()
+        self.canvas.update()
 
     # shows the graph of energy on the user interface
     def plot_energy(self, plotted_times, k_energys, gp_energys):
@@ -1376,8 +1383,7 @@ class UserInterface:
         # plot1.title.set_text("Energy vs Timestep")
         plot1.set_xlabel("timestep")
         plot1.set_ylabel("relative energy")
-        global energy_graph_frame
-        old_graphs = energy_graph_frame.winfo_children()
+        old_graphs = self.energy_graph_frame.winfo_children()
         fig.subplots_adjust(top=1.0,
                             bottom=0.28,
                             left=0.25,
@@ -1385,7 +1391,7 @@ class UserInterface:
                             hspace=0.01,
                             wspace=0.01)
         energy_graph_canvas = FigureCanvasTkAgg(fig,
-                                                master=energy_graph_frame)
+                                                master=self.energy_graph_frame)
         energy_graph_canvas.draw()
         energy_graph_canvas.get_tk_widget().grid(row=1, column=0)
         for g in range(1, len(old_graphs)):
@@ -1403,8 +1409,7 @@ class UserInterface:
         plot1.legend()
         plot1.set_xlabel("timestep")
         plot1.set_ylabel("distance from actual path")
-        global actual_variance_graph_frame
-        old_graphs = actual_variance_graph_frame.winfo_children()
+        old_graphs = self.actual_variance_graph_frame.winfo_children()
         fig.subplots_adjust(top=1.0,
                             bottom=0.28,
                             left=0.2,
@@ -1412,7 +1417,7 @@ class UserInterface:
                             hspace=0.01,
                             wspace=0.01)
         actual_variance_graph_canvas = FigureCanvasTkAgg(fig,
-                                                         master=actual_variance_graph_frame)
+                                                         master=self.actual_variance_graph_frame)
         actual_variance_graph_canvas.draw()
         actual_variance_graph_canvas.get_tk_widget().grid(row=1, column=0)
         for g in range(1, len(old_graphs)):

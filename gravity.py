@@ -3,7 +3,6 @@ import math
 import random
 import time
 import tkinter as tk
-import time
 from os import listdir
 from os.path import isfile, join
 from queue import PriorityQueue
@@ -50,6 +49,7 @@ def component_x(pos1, pos2):
 # Returns distance in the y direction between two points
 def component_y(pos1, pos2):
     return (pos2[1] - pos1[1]) / dist(pos1, pos2)
+
 
 # handles a collision between 2 planet objects
 def collide(planets, p1, p2):
@@ -202,11 +202,13 @@ class Planet:
                     # if model == "Position Average":
                     #     p2_calculation_position += p2.vel * position_average_modifier
                     acceleration[0] += component_x(calculation_position,
-                                                  p2_calculation_position) * p2.mass / dist_squared(calculation_position,
-                                                                                                   p2_calculation_position)
+                                                   p2_calculation_position) * p2.mass / dist_squared(
+                        calculation_position,
+                        p2_calculation_position)
                     acceleration[1] += component_y(calculation_position,
-                                                  p2_calculation_position) * p2.mass / dist_squared(calculation_position,
-                                                                                                   p2_calculation_position)
+                                                   p2_calculation_position) * p2.mass / dist_squared(
+                        calculation_position,
+                        p2_calculation_position)
                     collision = False
         velocity = self.vel + acceleration
         global dynamic_interval_scale
@@ -265,7 +267,6 @@ class SimulationInstance:
         self.variances_list = [[], []]
         self.number_planets = len(planets)
 
-
     # calculates the center of mass for the planet system
     def recalculate_com(self):
         self.com = np.array([0.0, 0.0])
@@ -290,19 +291,22 @@ class SimulationInstance:
             position_array = np.array(position_list)
             mass_array = np.array(masses_list)
             velocity_array = np.array(velocity_list)
-            radius_array =  np.array(radius_list)
+            radius_array = np.array(radius_list)
             horizontal_position_array = position_array.reshape((len(self.planets), 1, 2))
             verticle_position_array = position_array.reshape((1, len(self.planets), 2))
-            distance_vectors = -1*(horizontal_position_array - verticle_position_array)
-            distances = np.sqrt(np.sum(np.square(distance_vectors),axis=2)).reshape((len(self.planets), len(self.planets), 1))
-            collision_distances = np.add(radius_array.reshape((len(self.planets), 1)), radius_array.reshape((1, len(self.planets))))
-            _distances = np.reshape(distances,(len(self.planets),(len(self.planets))))
-            collision = np.greater(collision_distances, _distances, out =np.full((len(self.planets), len(self.planets)), False),  where=_distances!=0)
+            distance_vectors = -1 * (horizontal_position_array - verticle_position_array)
+            distances = np.sqrt(np.sum(np.square(distance_vectors), axis=2)).reshape(
+                (len(self.planets), len(self.planets), 1))
+            collision_distances = np.add(radius_array.reshape((len(self.planets), 1)),
+                                         radius_array.reshape((1, len(self.planets))))
+            _distances = np.reshape(distances, (len(self.planets), (len(self.planets))))
+            collision = np.greater(collision_distances, _distances,
+                                   out=np.full((len(self.planets), len(self.planets)), False), where=_distances != 0)
             colliding_indeces = np.where(np.any(collision, axis=1))[0]
-            a = distance_vectors*mass_array.reshape((1, len(self.planets), 1))
-            b = np.power(distances,3)
-            accelerations = np.divide(a, b, out=np.zeros_like(a), where=b!=0)
-            accelerations = np.sum(accelerations,axis = 1)
+            a = distance_vectors * mass_array.reshape((1, len(self.planets), 1))
+            b = np.power(distances, 3)
+            accelerations = np.divide(a, b, out=np.zeros_like(a), where=b != 0)
+            accelerations = np.sum(accelerations, axis=1)
             velocity_array += accelerations
             position_array += velocity_array
             for i in range(len(self.planets)):
@@ -312,7 +316,7 @@ class SimulationInstance:
             for i in colliding_indeces:
                 for j in range(i, len(collision[i])):
                     if collision[i][j]:
-                        planets_to_collide.append([self.planets[i],self.planets[j]])
+                        planets_to_collide.append([self.planets[i], self.planets[j]])
             for p in planets_to_collide:
                 global collisions
                 if collisions:
@@ -428,7 +432,14 @@ class SimulationInstance:
 
             min = -1
             min_index = -1
+            perihelion = -1
+            apoapsis = 0
             for i in range(0, len(path), 2):
+                dist_to_com = dist(np.array([path[i], path[i + 1]]),[0,0])
+                if perihelion == -1 or dist_to_com<perihelion:
+                    perihelion = dist(np.array([path[i], path[i + 1]]),[0,0])
+                if dist_to_com>apoapsis:
+                    apoapsis = dist(np.array([path[i], path[i + 1]]),[0,0])
                 distance = dist(np.array([path[i], path[i + 1]]), planet.pos - self.com)
                 if min == -1 or distance < min:
                     min = distance
@@ -478,7 +489,8 @@ class SimulationInstance:
                     x = self.timestep_list
                 elif self.user_interface.graph_x_axis == "actual_time":
                     x = self.times_list
-                if self.user_interface.graph_energy and self.current_time % (self.user_interface.graph_update_scale.get()) == 0:
+                if self.user_interface.graph_energy and self.current_time % (
+                        self.user_interface.graph_update_scale.get()) == 0:
                     self.user_interface.plot_energy(x, self.k_energy_list, self.gp_energy_list)
                 if self.user_interface.graph_actual_variance and self.current_time % (
                         self.user_interface.graph_update_scale.get()) == 0 and self.two_planet_start:
@@ -545,7 +557,8 @@ class UserInterface:
                             self.draw_control_frame.destroy()
                             create_multiple_simulation_controls(control_frame)
                             self.canvas.create_rectangle(-10, 370, 820, 430, fill="grey")
-                            self.canvas.create_text(400, 400, text="Not Showing Simulation", fill="black", font=(font, 40))
+                            self.canvas.create_text(400, 400, text="Not Showing Simulation", fill="black",
+                                                    font=(font, 40))
                         else:
                             draw_visuals_frame.draw_visuals_button.config(highlightbackground="green",
                                                                           text="Showing Simulation")
@@ -593,8 +606,8 @@ class UserInterface:
                 def create_timestep_length(general_frame):
                     timestep_length_frame = tk.Frame(general_frame)
                     self.timestep_length_scale = LogScale(timestep_length_frame, from_=-5.0, to=0.0, orient=HORIZONTAL,
-                                                     length=150, width=scale_width,
-                                                     font=(font, general_font_size), resolution=1)
+                                                          length=150, width=scale_width,
+                                                          font=(font, general_font_size), resolution=1)
                     self.timestep_length_scale.set(-2)
                     timestep_length_label = tk.Label(timestep_length_frame, text="Timestep Length:",
                                                      font=(font, general_font_size))
@@ -712,8 +725,10 @@ class UserInterface:
 
                 def create_zoom(draw_control_frame):
                     zoom_frame = tk.Frame(draw_control_frame)
-                    self.zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150, width=scale_width,
-                                       font=(font, draw_controls_font_size), showvalue=0, command=_screen_rules_updated)
+                    self.zoom_scale = Scale(zoom_frame, from_=1, to=100, orient=HORIZONTAL, length=150,
+                                            width=scale_width,
+                                            font=(font, draw_controls_font_size), showvalue=0,
+                                            command=_screen_rules_updated)
                     self.zoom_scale.set(50)
                     zoom_label = tk.Label(zoom_frame, text="Zoom:",
                                           font=(font, draw_controls_font_size))
@@ -731,9 +746,9 @@ class UserInterface:
 
                 def create_aparent_size(draw_control_frame):
                     aparent_size_frame = tk.Frame(draw_control_frame)
-                    self.aparent_size_scale = Scale(aparent_size_frame, from_=1, to=150, orient=HORIZONTAL,
-                                               length=150, width=scale_width, font=(font, draw_controls_font_size),
-                                               showvalue=0, command=_screen_rules_updated)
+                    self.aparent_size_scale = Scale(aparent_size_frame, from_=50, to=150, orient=HORIZONTAL,
+                                                    length=150, width=scale_width, font=(font, draw_controls_font_size),
+                                                    showvalue=0, command=_screen_rules_updated)
                     self.aparent_size_scale.set(50)
                     aparent_size_label = tk.Label(aparent_size_frame, text="Aparent Size of Bodies:",
                                                   font=(font, draw_controls_font_size))
@@ -828,8 +843,9 @@ class UserInterface:
                 def create_number_bodies(starting_frame):
                     number_bodies_frame = tk.Frame(starting_frame)
                     self.number_bodies_scale = NonLinearScale(number_bodies_frame, from_=2, to=150, orient=HORIZONTAL,
-                                                         length=200,
-                                                         width=scale_width, font=(font, starting_controls_font_size))
+                                                              length=200,
+                                                              width=scale_width,
+                                                              font=(font, starting_controls_font_size))
                     number_bodies_label = tk.Label(number_bodies_frame, text="Number of Bodies: ",
                                                    font=(font, starting_controls_font_size))
                     number_bodies_label.pack(side=LEFT)
@@ -881,6 +897,9 @@ class UserInterface:
                     mass_entry_frame = tk.Frame(starting_frame)
                     self.starting_mass = tk.StringVar()
                     self.starting_mass.set("100")
+                    CreateToolTip(mass_entry_frame,
+                                  text='Enter a single scalar or a range with format min-max')
+
                     starting_mass_entry = tk.Entry(mass_entry_frame, textvariable=self.starting_mass, width=3,
                                                    font=(font, starting_controls_font_size))
                     starting_mass_label = tk.Label(mass_entry_frame, text="Starting Mass of Bodies:",
@@ -892,7 +911,9 @@ class UserInterface:
                 def create_radius_entry(starting_frame):
                     radius_entry_frame = tk.Frame(starting_frame)
                     self.starting_radius = tk.StringVar()
-                    self.starting_radius.set("10")
+                    self.starting_radius.set("")
+                    CreateToolTip(radius_entry_frame,
+                                  text='Enter a single scalar, a range with format min-max, or leave empty to calculate radius based on mass')
                     starting_radius_entry = tk.Entry(radius_entry_frame, textvariable=self.starting_radius, width=3,
                                                      font=(font, starting_controls_font_size))
                     starting_radius_label = tk.Label(radius_entry_frame, text="Starting Radius of Bodies:",
@@ -905,7 +926,8 @@ class UserInterface:
                     velocity_entry_frame = tk.Frame(starting_frame)
                     self.starting_velocity = tk.StringVar()
                     self.starting_velocity.set("1")
-                    starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=self.starting_velocity, width=3,
+                    starting_velocity_entry = tk.Entry(velocity_entry_frame, textvariable=self.starting_velocity,
+                                                       width=3,
                                                        font=(font, starting_controls_font_size))
                     starting_velocity_label = tk.Label(velocity_entry_frame,
                                                        text="Average Starting Velocity of Bodies:",
@@ -918,7 +940,8 @@ class UserInterface:
                     rotation_entry_frame = tk.Frame(starting_frame)
                     self.starting_rotation = tk.StringVar()
                     self.starting_rotation.set("0")
-                    starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=self.starting_rotation, width=3,
+                    starting_rotation_entry = tk.Entry(rotation_entry_frame, textvariable=self.starting_rotation,
+                                                       width=3,
                                                        font=(font, starting_controls_font_size))
                     starting_rotation_label = tk.Label(rotation_entry_frame,
                                                        text="Average Starting Rotation of Bodies:",
@@ -1033,7 +1056,6 @@ class UserInterface:
                     energy_graph_top_frame.graph_energy_button.pack(side=LEFT)
                     energy_graph_top_frame.pack(side=TOP, anchor=NW)
 
-
                 def create_actual_variance_graph_controls(data_frame):
                     actual_variance_graph_top_frame = tk.Frame(data_frame)
                     self.graph_actual_variance = False
@@ -1065,8 +1087,6 @@ class UserInterface:
                     actual_variance_graph_top_frame.graph_actual_variance_button.pack(side=LEFT)
                     actual_variance_graph_top_frame.pack(side=TOP, anchor=NW)
 
-
-
                 def create_graph_update_controls(data_frame):
                     graph_update_frame = tk.Frame(data_frame, bg="white")
                     self.graph_update_scale = Scale(graph_update_frame, from_=1, to=200,
@@ -1075,14 +1095,15 @@ class UserInterface:
                                                     font=(font, data_controls_font_size), showvalue=0)
                     self.graph_update_scale.set(100)
                     graph_update_label = tk.Label(graph_update_frame,
-                                                                  text="Graph Update Interval:",
-                                                                  font=(font, data_controls_font_size), bg="white")
+                                                  text="Graph Update Interval:",
+                                                  font=(font, data_controls_font_size), bg="white")
                     graph_update_label.pack(side=LEFT)
                     self.graph_update_scale.pack(side=LEFT)
                     graph_update_frame.pack(side=TOP, anchor=NW, fill=X)
 
                 def create_graph_x_axis_controls(data_frame):
                     graph_x_axis_frame = tk.Frame(data_frame, bg="white")
+
                     def graph_x_axis_button_clicked():
                         if not self.simulations_running:
                             if self.graph_x_axis == "actual_time":
@@ -1125,15 +1146,15 @@ class UserInterface:
                                     file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
                                 except FileExistsError:
                                     return
-                                file.write(download_file_name.get()+"\n")
+                                file.write(download_file_name.get() + "\n")
                                 i = 0
                                 for simulation in self.simulations:
                                     file.write("Simulation " + str(i) + "\n")
-                                    file.write("Total Timesteps: "+str(simulation.current_time)+"\n")
-                                    file.write("Times: "+str(simulation.times_list)+ "\n")
+                                    file.write("Total Timesteps: " + str(simulation.current_time) + "\n")
+                                    file.write("Times: " + str(simulation.times_list) + "\n")
                                     file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
                                     file.write(
-                                        "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")
+                                        "Gravitational Potential Energy:" + str(simulation.gp_energy_list) + "\n")
                                     if simulation.two_planet_start == True:
                                         file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
                                         file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
@@ -1170,7 +1191,6 @@ class UserInterface:
                 create_graph_x_axis_controls(data_frame)
                 create_download_field(data_frame)
 
-
             # Creates the Widget for the starting button
             def create_start_button(control_frame):
 
@@ -1181,8 +1201,8 @@ class UserInterface:
                         self.end_simulations()
 
                 self.start_button = tk.Button(control_frame, text="Start Simulation",
-                                                       highlightbackground="green",
-                                                       command=start_button_clicked, width=16, font=(font, 20))
+                                              highlightbackground="green",
+                                              command=start_button_clicked, width=16, font=(font, 20))
                 self.start_button.grid(row=6, column=0, pady=4, padx=4)
 
             # Creates the Controls Title
@@ -1213,14 +1233,14 @@ class UserInterface:
         def create_graphs():
             graphs_font_size = 20
             self.energy_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
-                                          highlightthickness=2)
+                                               highlightthickness=2)
             self.energy_graph_frame.grid(row=1, column=2, pady=8, padx=8)
             self.energy_graph_frame.grid_propagate(False)
             energy_graph_label = tk.Label(self.energy_graph_frame, text="Energy at each Timestep",
                                           font=(font, 25))
             energy_graph_label.grid(row=0, column=0)
             self.actual_variance_graph_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=390,
-                                                   highlightthickness=2)
+                                                        highlightthickness=2)
             self.actual_variance_graph_frame.grid(row=2, column=2, pady=8, padx=8)
             self.actual_variance_graph_frame.grid_propagate(False)
             actual_variance_graph_label = tk.Label(self.actual_variance_graph_frame, text="Model and Actual Difference",
@@ -1262,36 +1282,74 @@ class UserInterface:
         planet_number = 0
         self.static_drawn_objects = []
         self.screen_rules_updated = True
+        planets = []
         if start_condition == "No Preset":
-            planets = []
             for i in range(0, int(self.number_bodies_scale.value)):
-                pos = np.array([random.uniform(float(self.distribution_area[0].get()), float(self.distribution_area[1].get())),
-                                random.uniform(float(self.distribution_area[2].get()), float(self.distribution_area[3].get()))])
+                pos = np.array(
+                    [random.uniform(float(self.distribution_area[0].get()), float(self.distribution_area[1].get())),
+                     random.uniform(float(self.distribution_area[2].get()), float(self.distribution_area[3].get()))])
                 _starting_velocity = float(self.starting_velocity.get())
                 distance = dist([0, 0], pos)
-                rot = [-1 * random.uniform(0,float(self.starting_rotation.get())) * pos[1] / distance,
-                       random.uniform(0,float(self.starting_rotation.get())) * pos[0] / distance]
-                angle = 2*math.pi*random.random()
+                rot = [-1 * random.uniform(0, float(self.starting_rotation.get())) * pos[1] / distance,
+                       random.uniform(0, float(self.starting_rotation.get())) * pos[0] / distance]
+                angle = 2 * math.pi * random.random()
                 speed = random.uniform(0, _starting_velocity)
-                vel = np.array([rot[0] + np.cos(angle)*speed,
-                                rot[1] + np.sin(angle)*speed])
-                radius = float(self.starting_radius.get())
-                mass = float(self.starting_mass.get())
+                vel = np.array([rot[0] + np.cos(angle) * speed,
+                                rot[1] + np.sin(angle) * speed])
+                if '-' in self.starting_mass.get():
+                    min, max = self.starting_mass.get().split("-")
+                    mass = random.uniform(float(min), float(max))
+                else:
+                    mass = float(self.starting_mass.get())
+                if self.starting_radius.get() == "":
+                    radius = np.power(mass, 1.0/3.0)
+                elif '-' in self.starting_radius.get():
+                    min, max = self.starting_radius.get().split("-")
+                    radius = random.uniform(float(min), float(max))
+                else:
+                    radius = float(self.starting_radius.get())
+
                 p = Planet(pos, vel, mass, radius)
                 planets.append(p)
         else:
             file = open("saved-start-conditions/" + start_condition)
             lines = [line.rstrip() for line in file]
-            for i in range(4, len(lines)):
-                planet_info = lines[i].split(' ')
-                pos = np.array(json.loads(planet_info[0][4:])).astype(np.float64)
-                vel = np.array(json.loads(planet_info[1][4:])).astype(np.float64)
-                radius = float(planet_info[2][7:])
-                mass = float(planet_info[3][5:])
-                path_color = planet_info[4][12:]
-                color = planet_info[5][6:]
-                p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
-                planets.append(p)
+            if "Planets:" in lines:
+                start = lines.index("Planets:")+1
+                for i in range(start, len(lines)):
+                    planet_info = lines[i].split(' ')
+                    pos = np.array(json.loads(planet_info[0][4:])).astype(np.float64)
+                    vel = np.array(json.loads(planet_info[1][4:])).astype(np.float64)
+                    radius = float(planet_info[2][7:])
+                    mass = float(planet_info[3][5:])
+                    path_color = planet_info[4][12:]
+                    color = planet_info[5][6:]
+                    p = Planet(pos, vel, mass, radius, path_color=path_color, color=color)
+                    planets.append(p)
+            if "Random:" in lines:
+                start = lines.index("Random:") + 1
+                number_planets = int(lines[start][14:])
+                distirbution_area = np.array(json.loads(lines[start+1][18:])).astype(np.float64)
+                planet_mass = int(lines[start+2][10:])
+                planet_radius = int(lines[start + 3][12:])
+                average_velocity = float(lines[start + 4][9:])
+                average_rotation = float(lines[start + 5][9:])
+                for i in range(number_planets):
+                    pos = np.array(
+                        [random.uniform(float(distirbution_area[0]), float(distirbution_area[1])),
+                         random.uniform(float(distirbution_area[2]),
+                                        float(distirbution_area[3]))])
+                    _starting_velocity = float(average_velocity)
+                    distance = dist([0, 0], pos)
+                    rot = [-1 * random.uniform(0, float(average_rotation)) * pos[1] / distance,
+                           random.uniform(0, float(average_rotation)) * pos[0] / distance]
+                    angle = 2 * math.pi * random.random()
+                    speed = random.uniform(0, _starting_velocity)
+                    vel = np.array([rot[0] + np.cos(angle) * speed,
+                                    rot[1] + np.sin(angle) * speed])
+                    p = Planet(pos, vel, planet_mass, planet_radius)
+                    planets.append(p)
+
         simulation = SimulationInstance(planets, self.selected_model.get(), self)
         self.simulations.append(simulation)
         simulation.run_simulation()
@@ -1299,14 +1357,15 @@ class UserInterface:
     # draws all the visuals for the passed simulation
     def draw(self, simulation):
         global window
-        def get_scale( zoom_scale ):
+
+        def get_scale(zoom_scale):
             return (10 ** (float(zoom_scale.get()) / 25)) / 100
 
         scale = get_scale(self.zoom_scale)
         aparent_size = get_scale(self.aparent_size_scale)
         planets = simulation.planets
         com = simulation.com
-        offset = [0,0]
+        offset = [0, 0]
         if self.center == "com":
             offset = com
         elif self.center == "largest":
@@ -1316,8 +1375,6 @@ class UserInterface:
                     max_mass = p.mass
                     offset = p.pos
 
-
-
         # draws one planet
         def draw_planet(planet):
             x_offset = offset[0]
@@ -1326,18 +1383,17 @@ class UserInterface:
             xpos = planet.pos[0] - x_offset
             ypos = planet.pos[1] - y_offset
             self.drawn_objects.append(self.canvas.create_arc(scale * (xpos - aparent_size * planet.radius) + 400,
-                                                   scale * (ypos - aparent_size * planet.radius) + 400,
-                                                   scale * (xpos + aparent_size * planet.radius) + 400,
-                                                   scale * (ypos + aparent_size * planet.radius) + 400,
-                                                   start=0, extent=359.9, fill=planet.color, outline=""))
+                                                             scale * (ypos - aparent_size * planet.radius) + 400,
+                                                             scale * (xpos + aparent_size * planet.radius) + 400,
+                                                             scale * (ypos + aparent_size * planet.radius) + 400,
+                                                             start=0, extent=359.9, fill=planet.color, outline=""))
 
         # draws the center of mass
         def draw_com(com):
-            print(com)
-            _com = [ 400 + scale*(com[0] - offset[0]), 400 + scale*(com[1] - offset[1])]
+            _com = [400 + scale * (com[0] - offset[0]), 400 + scale * (com[1] - offset[1])]
             self.drawn_objects.append(self.canvas.create_arc(_com[0] - 2, _com[1] - 2,
-                                                   _com[0] + 2, _com[1] + 2,
-                                                   start=0, extent=359, outline="", fill="red"))
+                                                             _com[0] + 2, _com[1] + 2,
+                                                             start=0, extent=359, outline="", fill="red"))
             self.drawn_objects.append(self.canvas.create_line(_com[0] - 6, _com[1], _com[0] + 6, _com[1], fill="red"))
             self.drawn_objects.append(self.canvas.create_line(_com[0], _com[1] - 6, _com[0], _com[1] + 6, fill="red"))
 
@@ -1345,9 +1401,10 @@ class UserInterface:
         def draw_path(points, com, storage_array, color="black"):
             for i in range(0, len(points) - 2, 2):
                 storage_array.append(self.canvas.create_line(400 + scale * (com[0] - offset[0] + points[i]),
-                                                        400 + scale * (com[1] - offset[1] + points[i + 1]),
-                                                        400 + scale * (com[0] - offset[0] + points[i + 2]),
-                                                        400 + scale * (com[1] - offset[1] + points[i + 3]), width=1, fill=color))
+                                                             400 + scale * (com[1] - offset[1] + points[i + 1]),
+                                                             400 + scale * (com[0] - offset[0] + points[i + 2]),
+                                                             400 + scale * (com[1] - offset[1] + points[i + 3]),
+                                                             width=1, fill=color))
 
         for o in self.drawn_objects:
             self.canvas.delete(o)
@@ -1365,8 +1422,8 @@ class UserInterface:
                 self.canvas.delete(o)
             if self.starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
                 starting_paths = simulation.starting_paths
-                draw_path(starting_paths[0], com, self.static_drawn_objects, color = "red")
-                draw_path(starting_paths[1], com, self.static_drawn_objects, color = "red")
+                draw_path(starting_paths[0], com, self.static_drawn_objects, color="red")
+                draw_path(starting_paths[1], com, self.static_drawn_objects, color="red")
             self.screen_rules_updated = False
 
         self.canvas.update()

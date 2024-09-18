@@ -1,0 +1,9 @@
+Random:
+Planet Number:600
+Distribution Area:[-400,400,-400,400]
+Body Mass:1
+Body Radius:1
+Velocity:1
+Rotation:5
+Planets:
+Pos:[0,0] Vel:[0,0] Radius:21 Mass:10000 Path-Color:red Color:black

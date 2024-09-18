@@ -1,6 +1,7 @@
 Planet Number:2
 Distribution Area:NA
 Body Mass:NA
+Body Radius:NA
 Planets:
 Pos:[400,400] Vel:[0,0] Radius:10 Mass:100 Path-Color:red Color:black
 Pos:[500,400] Vel:[0,1] Radius:5 Mass:1 Path-Color:red Color:black

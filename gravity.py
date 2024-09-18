@@ -3,6 +3,7 @@ import math
 import random
 import time
 import tkinter as tk
+import time
 from os import listdir
 from os.path import isfile, join
 from queue import PriorityQueue
@@ -251,6 +252,7 @@ class SimulationInstance:
             self.planet_queue.put(p)
         self.model = model
         self.recalculate_com()
+        self.timestep_list = [0]
         self.times_list = [0]
         self.k_energy_list = []
         self.gp_energy_list = []
@@ -330,7 +332,8 @@ class SimulationInstance:
                 p = self.planet_queue.get()
             self.planet_queue.put(p)
         self.current_time += 1
-        self.times_list.append(self.current_time)
+        self.timestep_list.append(self.current_time)
+        self.times_list.append(time.perf_counter() - self.start_time)
 
     # calculated the path the planets should follow under gravitational interaction
     # method only works if there are exactly two planets
@@ -466,15 +469,20 @@ class SimulationInstance:
     # method that handles setting up and running the simulation
     def run_simulation(self):
         self.running = True
+        self.start_time = time.perf_counter()
         while self.running:
             self.record_energys()
             self.record_variance()
             if self.user_interface.draw_visuals:
+                if self.user_interface.graph_x_axis == "timestep":
+                    x = self.timestep_list
+                elif self.user_interface.graph_x_axis == "actual_time":
+                    x = self.times_list
                 if self.user_interface.graph_energy and self.current_time % (self.user_interface.graph_update_scale.get()) == 0:
-                    self.user_interface.plot_energy(self.times_list, self.k_energy_list, self.gp_energy_list)
+                    self.user_interface.plot_energy(x, self.k_energy_list, self.gp_energy_list)
                 if self.user_interface.graph_actual_variance and self.current_time % (
                         self.user_interface.graph_update_scale.get()) == 0 and self.two_planet_start:
-                    self.user_interface.plot_variance(self.times_list, self.variances_list)
+                    self.user_interface.plot_variance(x, self.variances_list)
                 self.user_interface.draw(self)
             self.update()
             if self.end_condition_met():
@@ -761,7 +769,6 @@ class UserInterface:
                     self.starting_path_button_on = False
 
                     def start_button_clicked():
-                        _screen_rules_updated()
                         if self.starting_path_button_on:
                             starting_path_frame.starting_path_button.config(highlightbackground="white",
                                                                             text="Not Showing Starting Paths")
@@ -770,6 +777,8 @@ class UserInterface:
                             starting_path_frame.starting_path_button.config(highlightbackground="green",
                                                                             text="Showing Starting Paths")
                             self.starting_path_button_on = True
+
+                        _screen_rules_updated()
 
                     starting_path_frame = tk.Frame(draw_control_frame)
                     starting_path_frame.starting_path_button = tk.Button(starting_path_frame,
@@ -1116,11 +1125,12 @@ class UserInterface:
                                     file = open("saved-simulation-data/" + download_file_name.get() + ".txt", "x")
                                 except FileExistsError:
                                     return
-                                file.write(download_file_name.get())
+                                file.write(download_file_name.get()+"\n")
                                 i = 0
                                 for simulation in self.simulations:
                                     file.write("Simulation " + str(i) + "\n")
-                                    file.write("Runtime: "+str(simulation.current_time)+"\n")
+                                    file.write("Total Timesteps: "+str(simulation.current_time)+"\n")
+                                    file.write("Times: "+str(simulation.times_list)+ "\n")
                                     file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
                                     file.write(
                                         "Gravitational Potential Energy:" + str(simulation.k_energy_list) + "\n")
@@ -1166,16 +1176,14 @@ class UserInterface:
 
                 def start_button_clicked():
                     if not self.simulations_running:
-                        control_frame.start_button.config(highlightbackground="red", text="End Simulation")
                         self.start_simulations(start_condition.get())
                     else:
-                        control_frame.start_button.config(highlightbackground="green", text="Start Simulation")
                         self.end_simulations()
 
-                control_frame.start_button = tk.Button(control_frame, text="Start Simulation",
+                self.start_button = tk.Button(control_frame, text="Start Simulation",
                                                        highlightbackground="green",
                                                        command=start_button_clicked, width=16, font=(font, 20))
-                control_frame.start_button.grid(row=6, column=0, pady=4, padx=4)
+                self.start_button.grid(row=6, column=0, pady=4, padx=4)
 
             # Creates the Controls Title
             control_frame = tk.Frame(self.window, highlightbackground="black", width=370, height=800,
@@ -1226,17 +1234,16 @@ class UserInterface:
 
     # Handles the ending of all currently running simulations
     def end_simulations(self):
+        self.start_button.config(highlightbackground="green", text="Start Simulation")
         for simulation in self.simulations:
             simulation.running = False
-        print("simulations ended")
 
         self.simulations_running = False
-        print("simulations ended")
 
     # Uses the user inputs to start on or multiple simulations
     def start_simulations(self, start_condition):
         self.simulations_running = True
-        print("start")
+        self.start_button.config(highlightbackground="red", text="End Simulation")
         self.simulations = []
         if self.draw_visuals:
             self.start_simulation(start_condition)
@@ -1245,8 +1252,7 @@ class UserInterface:
             number_simulations = int(self.number_simulations_scale.get())
             for i in range(number_simulations):
                 self.start_simulation(start_condition)
-        self.simulations_running = False
-        print("done")
+        self.end_simulations()
 
     # Starts a single simulation
     def start_simulation(self, start_condition):
@@ -1313,8 +1319,7 @@ class UserInterface:
 
 
         # draws one planet
-        def drawPlanet(planet, com):
-
+        def draw_planet(planet):
             x_offset = offset[0]
             y_offset = offset[1]
 
@@ -1328,8 +1333,8 @@ class UserInterface:
 
         # draws the center of mass
         def draw_com(com):
-            x = 0
-            _com = [ 400 + scale*(com[0] - offset[0]), 400 + scale*(com[1] - scale*offset[1])]
+            print(com)
+            _com = [ 400 + scale*(com[0] - offset[0]), 400 + scale*(com[1] - offset[1])]
             self.drawn_objects.append(self.canvas.create_arc(_com[0] - 2, _com[1] - 2,
                                                    _com[0] + 2, _com[1] + 2,
                                                    start=0, extent=359, outline="", fill="red"))
@@ -1349,19 +1354,19 @@ class UserInterface:
         self.drawn_objects = []
 
         for planet in planets:
-            drawPlanet(planet, com)
+            draw_planet(planet)
         draw_com(com)
         if self.path_button_on and len(planets) == 2:
             paths = simulation.calculate_actual_paths()
             draw_path(paths[0], com, self.drawn_objects)
             draw_path(paths[1], com, self.drawn_objects)
-        if (self.screen_rules_updated or self.center != "com") and self.starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
-
-            starting_paths = simulation.starting_paths
+        if (self.screen_rules_updated or self.center != "com"):
             for o in self.static_drawn_objects:
                 self.canvas.delete(o)
-            draw_path(starting_paths[0], com, self.static_drawn_objects, color = "red")
-            draw_path(starting_paths[1], com, self.static_drawn_objects, color = "red")
+            if self.starting_path_button_on and len(planets) <= 2 and simulation.starting_paths != None:
+                starting_paths = simulation.starting_paths
+                draw_path(starting_paths[0], com, self.static_drawn_objects, color = "red")
+                draw_path(starting_paths[1], com, self.static_drawn_objects, color = "red")
             self.screen_rules_updated = False
 
         self.canvas.update()

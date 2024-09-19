@@ -1311,7 +1311,6 @@ class UserInterface:
                     radius = random.uniform(float(min), float(max))
                 else:
                     radius = float(self.starting_radius.get())
-
                 p = Planet(pos, vel, mass, radius)
                 planets.append(p)
         else:

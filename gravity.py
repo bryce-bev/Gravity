@@ -432,18 +432,18 @@ class SimulationInstance:
 
             min = -1
             min_index = -1
-            perihelion = -1
-            apoapsis = 0
+            # perihelion = -1
+            # apoapsis = 0
             for i in range(0, len(path), 2):
-                dist_to_com = dist(np.array([path[i], path[i + 1]]),[0,0])
-                if perihelion == -1 or dist_to_com<perihelion:
-                    perihelion = dist(np.array([path[i], path[i + 1]]),[0,0])
-                if dist_to_com>apoapsis:
-                    apoapsis = dist(np.array([path[i], path[i + 1]]),[0,0])
+                # if perihelion == -1 or dist_to_com<perihelion:
+                #     perihelion = dist(np.array([path[i], path[i + 1]]),np.array([0,0]))
+                # if dist_to_com>apoapsis:
+                #     apoapsis = dist(np.array([path[i], path[i + 1]]),np.array([0,0]))
                 distance = dist(np.array([path[i], path[i + 1]]), planet.pos - self.com)
                 if min == -1 or distance < min:
                     min = distance
                     min_index = i
+            dist_to_com = dist(planet.pos, self.com)
             next_index = min_index + 2
             prev_index = min_index - 2
             if min_index == len(path) - 2:
@@ -456,7 +456,7 @@ class SimulationInstance:
                                        planet.pos - self.com)
             else:
                 return dist_line_point(path[prev_index], path[prev_index + 1], path[min_index], path[min_index + 1],
-                                       planet.pos - self.com)
+                                       planet.pos - self.com) / dist_to_com # / (perihelion + apoapsis)
 
         for i in range(2):
             self.variances_list[i].append(variance_from_path(self.planets[i], self.starting_paths[i]))
@@ -669,7 +669,7 @@ class UserInterface:
                 def create_end_time_slider(frame):
                     slider_frame = tk.Frame(frame)
                     end_condition_specific_widgets.append(slider_frame)
-                    self.end_time_scale = Scale(slider_frame, from_=100, to=10000, orient=HORIZONTAL, length=150,
+                    self.end_time_scale = Scale(slider_frame, from_=100, to=1000000, orient=HORIZONTAL, length=150,
                                                 width=scale_width,
                                                 font=(font, multiple_simulation_font_size),
                                                 command=_screen_rules_updated)
@@ -1150,14 +1150,17 @@ class UserInterface:
                                 i = 0
                                 for simulation in self.simulations:
                                     file.write("Simulation " + str(i) + "\n")
-                                    file.write("Total Timesteps: " + str(simulation.current_time) + "\n")
-                                    file.write("Times: " + str(simulation.times_list) + "\n")
-                                    file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
-                                    file.write(
-                                        "Gravitational Potential Energy:" + str(simulation.gp_energy_list) + "\n")
+                                    # file.write("Total Timesteps: " + str(simulation.current_time) + "\n")
+                                    # file.write("Times: " + str(simulation.times_list) + "\n")
+                                    # file.write("Kinetic Energy:" + str(simulation.k_energy_list) + "\n")
+                                    # file.write(
+                                    #     "Gravitational Potential Energy:" + str(simulation.gp_energy_list) + "\n")
                                     if simulation.two_planet_start == True:
-                                        file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
-                                        file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
+                                        # file.write("PLanet 1 Variance:" + str(simulation.variances_list[0]) + "\n")
+                                        # file.write("PLanet 2 Variance:" + str(simulation.variances_list[1]) + "\n")
+                                        file.write(str(simulation.variances_list[0])[1:-1]+ "\n")
+                                        file.write(str(simulation.variances_list[1])[1:-1] + "\n")
+                                        file.write("\n")
                                     i += 1
 
                     download_field_frame.download_fields_button = tk.Button(download_field_frame, text="Download",
